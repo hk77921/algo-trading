@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: algo-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - ENV_STATE=prod
+      - FLATTRADE_API_KEY=${FLATTRADE_API_KEY}
+      - FLATTRADE_API_SECRET=${FLATTRADE_API_SECRET}
+      - FLATTRADE_BASE_URL=https://auth.flattrade.in
+      - FLATTRADE_REDIRECT_URI=http://192.168.1.100:3000/callback
+      - FLATTRADE_TOKEN_URL=https://authapi.flattrade.in/trade/apitoken
+      - HOST=0.0.0.0
+      - PORT=8000
+      - SECRET_KEY=${SECRET_KEY:-mysecretkey}
+      - ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=60
+    networks:
+      - algo-network
+
+  frontend:
+    build: ./frontend
+    container_name: algo-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - algo-network
+
+networks:
+  algo-network:
+    driver: bridge

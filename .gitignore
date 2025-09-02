@@ -1,0 +1,30 @@
+# Node modules
+frontend/node_modules/
+backend/node_modules/
+
+# Python cache
+__pycache__/
+backend/__pycache__/
+backend/api/routes/__pycache__/
+backend/config/__pycache__/
+backend/core/__pycache__/
+backend/models/__pycache__/
+backend/services/__pycache__/
+backend/utils/__pycache__/
+
+# Environment files
+.env
+backend/.env
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Lock files
+backend/uv.lock
+
+# VSCode
+.vscode/
