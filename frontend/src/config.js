@@ -1,5 +1,5 @@
 // API Configuration
-export const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://backend:8000'|| 'http://localhost:8000';
+export const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://algo-backend:8000';
 
 // OAuth Configuration
 export const OAUTH_CONFIG = {
