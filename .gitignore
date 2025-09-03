@@ -24,7 +24,7 @@ Thumbs.db
 *.log
 
 # Lock files
-backend/uv.lock
+#backend/uv.lock
 
 # VSCode
 .vscode/
