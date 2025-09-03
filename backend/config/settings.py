@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     
     # CORS
-    CORS_ORIGINS: str = "http://localhost:3000"  # Store as string in env
+    CORS_ORIGINS: str = "http://localhost:3000,http://trd-integration.centralus.cloudapp.azure.com:3000,http://trd-integration.centralus.cloudapp.azure.com"  # Store as string in env
     CORS_ALLOW_CREDENTIALS: bool = True
     CORS_ALLOW_METHODS: List[str] = ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"]
     CORS_ALLOW_HEADERS: List[str] = ["*"]
