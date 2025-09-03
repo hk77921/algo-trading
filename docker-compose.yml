@@ -11,7 +11,7 @@ services:
       - FLATTRADE_API_KEY=${FLATTRADE_API_KEY}
       - FLATTRADE_API_SECRET=${FLATTRADE_API_SECRET}
       - FLATTRADE_BASE_URL=https://auth.flattrade.in
-      - FLATTRADE_REDIRECT_URI=http://192.168.1.100:3000/callback
+      - FLATTRADE_REDIRECT_URI=http://trd-integration.centralus.cloudapp.azure.com:3000/callback
       - FLATTRADE_TOKEN_URL=https://authapi.flattrade.in/trade/apitoken
       - HOST=0.0.0.0
       - PORT=8000
