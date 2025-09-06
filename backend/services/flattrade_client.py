@@ -197,7 +197,7 @@ class FlattradeClient:
         """Make authenticated API call to Flattrade"""
         try:
             url = f"{self.base_url}{endpoint}"
-            print(f'URL-->:', url)
+            logger.debug(f"Making API call to: {url}")
             
             if data is None:
                 data = {"uid": self.settings.DEFAULT_USER_ID}
@@ -223,7 +223,7 @@ class FlattradeClient:
                     )
                 
                 response_data = resp.json()
-                print('response_data-->', response_data)
+                #print('response_data-->', response_data)
                 
                 # Handle "no data" error response
                 if (isinstance(response_data, dict) and 
@@ -248,12 +248,87 @@ class FlattradeClient:
     
     async def get_holdings(self, token: str, user_id: Optional[str] = None) -> Dict[str, Any]:
         """Get portfolio holdings"""
-        data = {
-            "uid": user_id or self.settings.DEFAULT_USER_ID,
-            "actid": user_id or self.settings.DEFAULT_USER_ID,
-            "prd": "H"
-        }
-        return await self.make_api_call("/Holdings", token, data)
+        try:
+            data = {
+                "uid": user_id or self.settings.DEFAULT_USER_ID,
+                "actid": user_id or self.settings.DEFAULT_USER_ID,
+                "prd": "C"
+            }
+            response = await self.make_api_call("/Holdings", token, data)
+            logger.debug(f"Raw holdings response: {response}")
+            
+            # Transform the Flattrade response to match our frontend structure
+            transformed_holdings = []
+            
+            if isinstance(response, list):
+                for holding_data in response:
+                    try:
+                        # Ensure we're working with a dictionary
+                        if not isinstance(holding_data, dict):
+                            continue
+                            
+                        holding: Dict[str, Any] = holding_data
+                            
+                        # Extract NSE symbol details
+                        exch_tsym_data = holding.get("exch_tsym", [])
+                        if not isinstance(exch_tsym_data, list):
+                            continue
+                            
+                        # Find NSE symbol in exchange list
+                        nse_symbol = None
+                        for sym in exch_tsym_data:
+                            if isinstance(sym, dict) and sym.get("exch") == "NSE":
+                                nse_symbol = sym
+                                break
+                        
+                        if not nse_symbol:
+                            continue
+                            
+                        # Get quantities with proper type handling
+                        npoadqty = str(holding.get("npoadqty", "0"))
+                        benqty = str(holding.get("benqty", "0"))
+                        holdqty = str(holding.get("holdqty", "0"))
+                        
+                        # Calculate total quantity
+                        total_qty = sum(int(qty) for qty in [npoadqty, benqty, holdqty] if str(qty).isdigit())
+                        
+                        if total_qty <= 0:
+                            continue
+                            
+                        # Get price information with safe conversion
+                        try:
+                            upld_price = float(holding.get("upldprc", 0))
+                        except (ValueError, TypeError):
+                            upld_price = 0.0
+                        
+                        transformed_holding = {
+                            "symbol": str(nse_symbol.get("tsym", "")).replace("-EQ", "").replace("-BE", ""),
+                            "quantity": total_qty,
+                            "side": "LONG",  # Holdings are always long positions
+                            "entry_price": upld_price,
+                            "current_price": upld_price,  # We'll need to fetch current price separately
+                            "pnl": 0.0,  # Will calculate once we have current price
+                            "exchange": "NSE",
+                            "product": str(holding.get("s_prdt_ali", "CNC"))
+                        }
+                        transformed_holdings.append(transformed_holding)
+                        
+                    except Exception as e:
+                        logger.error(f"Error processing holding: {e}")
+                        continue
+                        
+            return {
+                "success": True,
+                "data": transformed_holdings
+            }
+                
+        except Exception as e:
+            logger.error(f"Error fetching holdings: {str(e)}")
+            return {
+                "success": False,
+                "data": [],
+                "error": str(e)
+            }
     
     async def get_order_book(self, token: str, user_id: Optional[str] = None) -> Dict[str, Any]:
         """Get order book"""

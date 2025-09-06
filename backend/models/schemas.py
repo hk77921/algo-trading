@@ -64,6 +64,11 @@ class Position(BaseModel):
     entry_price: float
     current_price: float
     pnl: float
+    
+    class Config:
+        json_encoders = {
+            float: lambda v: round(v, 2) if v is not None else None
+        }
 
 class PortfolioStats(BaseModel):
     total_pnl: float

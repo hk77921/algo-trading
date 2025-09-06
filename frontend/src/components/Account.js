@@ -25,7 +25,7 @@ const Account = () => {
       setRefreshing(true);
       setError('');
       
-      const [userDetailsRes, ordersRes, tradesRes,holdingsRes] = await Promise.all([
+      const [userDetailsRes, ordersRes, tradesRes] = await Promise.all([
         axios.get('/api/account/user-details'),
         axios.get('/api/account/orders'),
         axios.get('/api/account/trades')
@@ -39,18 +39,21 @@ const Account = () => {
         setAccountData(userDetailsRes.data);
       }
       
-      if (holdingsRes.data) {
-        setHoldings(holdingsRes.data.data || []);
-      }
+     
       
       if (ordersRes.data) {
+        console.log(ordersRes.data);
         setOrders(ordersRes.data.orders || []);
       }
       
       if (tradesRes.data) {
+          console.log(tradesRes.data);
         setTrades(tradesRes.data.data || []);
       }
-
+    //  if (holdingsRes.data) {
+    //      console.log(holdingsRes.data);
+    //     setHoldings(holdingsRes.data.data || []);
+    //   }
     } catch (error) {
       console.error('Error fetching account data:', error);
       setError(error.response?.data?.detail || 'Failed to fetch account data');

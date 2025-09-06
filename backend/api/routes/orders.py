@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.encoders import jsonable_encoder
 from typing import List, Dict, Any
 from core.dependencies import get_current_session
 from models.schemas import OrderRequest
@@ -42,27 +43,9 @@ async def place_order(
 async def get_order_history(session_token: str = Depends(get_current_session)) -> Dict[str, List[OrderHistoryItem]]:
     """Get order history"""
     raw_orders = await portfolio_service.get_order_history(session_token)
-    # raw_orders is expected to be a dict with a 'data' key or a list
-    orders_data = []
-    if isinstance(raw_orders, dict):
-        orders_data = raw_orders.get("data", [])
-        if not isinstance(orders_data, list):
-            orders_data = []
-    elif isinstance(raw_orders, list):
-        orders_data = raw_orders
-    else:
-        orders_data = []
-
-    # Map each order to the internal schema
-    mapped_orders = []
-    for order in orders_data:
-        try:
-            parsed = portfolio_service.parse_order_data(order)
-            if parsed:
-                mapped_orders.append(parsed)
-        except Exception:
-            continue
-    return {"orders": mapped_orders}
+    # raw_orders is a list of OrderHistoryItem objects
+    # Use jsonable_encoder to ensure datetime is converted to ISO string
+    return {"orders": jsonable_encoder(raw_orders)}
 @router.get("/orders")
 async def get_order_book(session_token: str = Depends(get_current_session)) -> Dict[str, Any]:
     """Get order book details, mapped to internal schema for frontend consistency"""

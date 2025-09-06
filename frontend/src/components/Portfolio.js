@@ -14,27 +14,178 @@ const Portfolio = () => {
     if (isAuthenticated()) {
       fetchPortfolio();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
+
+  const parseBackendArray = (arr) => {
+    // arr: array of backend items like the sample the user provided
+    // We will create positions in the shape expected by the UI:
+    // { symbol, quantity, entry_price, current_price, pnl, side }
+    if (!Array.isArray(arr)) return [];
+
+    return arr.map((item) => {
+      // safe extraction helpers
+      const upldprc = parseFloat(item.upldprc || '0') || 0; // we'll treat this as current price if no separate current price provided
+      const qty = parseInt(item.npoadqty || item.holdqty || '0', 10) || 0;
+      // pick readable symbol from exch_tsym array - prefer NSE token display if present
+      let symbol = '';
+      try {
+        if (Array.isArray(item.exch_tsym) && item.exch_tsym.length > 0) {
+          // pick first whose exch is NSE if exists, else first element
+          const nse = item.exch_tsym.find((e) => e.exch === 'NSE');
+          symbol = (nse || item.exch_tsym[0]).tsym || '';
+        }
+      } catch (e) {
+        symbol = '';
+      }
+
+      // For entry price we don't have a clear field in sample. Use upldprc as both entry and current to avoid NaN.
+      // If you later get separate fields for entry price you can replace this mapping.
+      const entry_price = upldprc;
+      const current_price = upldprc;
+
+      // no P&L provided in sample; calculate 0 for now (current - entry) * qty
+      const pnl = (current_price - entry_price) * qty;
+
+      // side not provided; default to 'LONG' or infer from quantity sign in future
+      const side = qty >= 0 ? 'LONG' : 'SHORT';
+
+      return {
+        symbol,
+        quantity: qty,
+        entry_price,
+        current_price,
+        pnl,
+        side,
+        // keep raw backend item for debugging / future fields
+        _raw: item
+      };
+    });
+  };
+
+  const computeSummary = (positions) => {
+    const summary = {
+      current_value: 0,
+      total_investment: 0,
+      total_pnl: 0,
+      total_quantity: 0,
+      winning_positions: 0,
+      losing_positions: 0,
+      best_performer: null,
+      worst_performer: null
+    };
+
+    positions.forEach((p) => {
+      const marketValue = (p.current_price || 0) * (p.quantity || 0);
+      const invest = (p.entry_price || 0) * (p.quantity || 0);
+      const pnl = p.pnl || (marketValue - invest); // fallback
+      summary.current_value += marketValue;
+      summary.total_investment += invest;
+      summary.total_pnl += pnl;
+      summary.total_quantity += (p.quantity || 0);
+
+      if (p.quantity > 0) {
+        if (p.pnl > 0) summary.winning_positions += 1;
+        if (p.pnl < 0) summary.losing_positions += 1;
+      }
+
+      // best/worst by absolute pnl
+      if (!summary.best_performer || (p.pnl || 0) > (summary.best_performer.pnl || 0)) {
+        summary.best_performer = { symbol: p.symbol, pnl: p.pnl || 0 };
+      }
+      if (!summary.worst_performer || (p.pnl || 0) < (summary.worst_performer.pnl || 0)) {
+        summary.worst_performer = { symbol: p.symbol, pnl: p.pnl || 0 };
+      }
+    });
+
+    return summary;
+  };
 
   const fetchPortfolio = async () => {
     try {
       setRefreshing(true);
-      const response = await axios.get('/api/portfolio');
-      setPortfolioData(response.data);
+      setLoading(true);
+      const response = await axios.get('/api/portfolio'); // keep your endpoint
+      let data = response.data;
+
+      // If backend directly returns an array (the sample you pasted), normalize it
+      let positions = [];
+      if (Array.isArray(data)) {
+        positions = parseBackendArray(data);
+      } else if (data && Array.isArray(data.portfolio)) {
+        // already in expected shape - use existing mapping but ensure numeric fields
+        positions = data.portfolio.map((p) => ({
+          symbol: p.symbol || p.tsym || p.symbol_name || '',
+          quantity: Number(p.quantity || p.qty || p.npoadqty || p.holdqty) || 0,
+          entry_price: Number(p.entry_price || p.avg_price || p.upldprc) || 0,
+          current_price: Number(p.current_price || p.last_price || p.upldprc) || 0,
+          pnl: Number(p.pnl || 0),
+          side: p.side || 'LONG',
+          _raw: p
+        }));
+      } else if (data && data.success === false) {
+        // handle error responses gracefully
+        console.error('Backend returned failure', data);
+        setPortfolioData(null);
+        return;
+      } else {
+        // unknown shape: try to detect nested array in response.data.data or response.data.result
+        const possible = data?.data || data?.result || null;
+        if (Array.isArray(possible)) {
+          positions = parseBackendArray(possible);
+        } else {
+          // nothing we can parse
+          positions = [];
+        }
+      }
+
+      // compute summary fields
+      const summary = computeSummary(positions);
+
+      const final = {
+        portfolio: positions,
+        total_pnl: summary.total_pnl,
+        total_investment: summary.total_investment,
+        current_value: summary.current_value,
+        total_quantity: summary.total_quantity,
+        winning_positions: summary.winning_positions,
+        losing_positions: summary.losing_positions,
+        best_performer: summary.best_performer,
+        worst_performer: summary.worst_performer
+      };
+
+      setPortfolioData(final);
     } catch (error) {
       console.error('Error fetching portfolio:', error);
+      setPortfolioData(null);
     } finally {
-      setLoading(false);
       setRefreshing(false);
+      setLoading(false);
     }
   };
 
+  // Debounce refresh to prevent rapid repeated calls
   const handleRefresh = () => {
-    fetchPortfolio();
+    if (!refreshing) {
+      fetchPortfolio();
+    }
   };
 
   if (!isAuthenticated()) {
     return <Navigate to="/login" />;
+  }
+
+  // Show error state if portfolio data failed to load
+  if (!loading && !portfolioData) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64">
+        <AlertTriangle className="h-12 w-12 text-danger-600 mb-4" />
+        <p className="text-lg text-gray-900">Failed to load portfolio data</p>
+        <button onClick={handleRefresh} className="btn-primary mt-4">
+          Try Again
+        </button>
+      </div>
+    );
   }
 
   if (loading) {
@@ -80,7 +231,7 @@ const Portfolio = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Current Value</p>
-              <p className="text-2xl font-bold text-gray-900">₹{totalValue.toLocaleString()}</p>
+              <p className="text-2xl font-bold text-gray-900">₹{Number(totalValue).toLocaleString()}</p>
             </div>
           </div>
         </div>
@@ -93,7 +244,7 @@ const Portfolio = () => {
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Total P&L</p>
               <p className={`text-2xl font-bold ${totalPnL >= 0 ? 'text-success-600' : 'text-danger-600'}`}>
-                ₹{totalPnL.toLocaleString()}
+                ₹{Number(totalPnL).toLocaleString()}
               </p>
             </div>
           </div>
@@ -106,7 +257,7 @@ const Portfolio = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Total Investment</p>
-              <p className="text-2xl font-bold text-gray-900">₹{totalInvestment.toLocaleString()}</p>
+              <p className="text-2xl font-bold text-gray-900">₹{Number(totalInvestment).toLocaleString()}</p>
             </div>
           </div>
         </div>
@@ -118,7 +269,7 @@ const Portfolio = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Total Quantity</p>
-              <p className="text-2xl font-bold text-gray-900">{totalQuantity.toLocaleString()}</p>
+              <p className="text-2xl font-bold text-gray-900">{Number(totalQuantity).toLocaleString()}</p>
             </div>
           </div>
         </div>
@@ -167,7 +318,7 @@ const Portfolio = () => {
               </h3>
               <div className="text-center">
                 <p className="text-2xl font-bold text-green-800">{bestPerformer.symbol}</p>
-                <p className="text-lg text-green-600">+₹{bestPerformer.pnl.toLocaleString()}</p>
+                <p className="text-lg text-green-600">+₹{Number(bestPerformer.pnl).toLocaleString()}</p>
               </div>
             </div>
           )}
@@ -180,7 +331,7 @@ const Portfolio = () => {
               </h3>
               <div className="text-center">
                 <p className="text-2xl font-bold text-red-800">{worstPerformer.symbol}</p>
-                <p className="text-lg text-red-600">₹{worstPerformer.pnl.toLocaleString()}</p>
+                <p className="text-lg text-red-600">₹{Number(worstPerformer.pnl).toLocaleString()}</p>
               </div>
             </div>
           )}
@@ -232,10 +383,10 @@ const Portfolio = () => {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {portfolioData.portfolio.map((position, index) => {
-                  const marketValue = position.quantity * position.current_price;
-                  const investment = position.quantity * position.entry_price;
-                  const pnl = position.pnl;
-                  const pnlPercent = ((pnl / investment) * 100);
+                  const marketValue = (position.quantity || 0) * (position.current_price || 0);
+                  const investment = (position.quantity || 0) * (position.entry_price || 0);
+                  const pnl = position.pnl || (marketValue - investment);
+                  const pnlPercent = investment > 0 ? ((pnl / investment) * 100) : 0;
                   
                   return (
                     <tr key={index} className="hover:bg-gray-50">
@@ -244,20 +395,20 @@ const Portfolio = () => {
                         <div className="text-sm text-gray-500">{position.side}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {position.quantity.toLocaleString()}
+                        {Number(position.quantity).toLocaleString()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        ₹{position.entry_price.toLocaleString()}
+                        ₹{Number(position.entry_price).toLocaleString()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        ₹{position.current_price.toLocaleString()}
+                        ₹{Number(position.current_price).toLocaleString()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        ₹{marketValue.toLocaleString()}
+                        ₹{Number(marketValue).toLocaleString()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`text-sm font-medium ${pnl >= 0 ? 'text-success-600' : 'text-danger-600'}`}>
-                          {pnl >= 0 ? '+' : ''}₹{pnl.toLocaleString()}
+                          {pnl >= 0 ? '+' : ''}₹{Number(pnl).toLocaleString()}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -316,19 +467,19 @@ const Portfolio = () => {
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-600">Total Return</span>
                   <span className={`text-sm font-medium ${totalPnL >= 0 ? 'text-success-600' : 'text-danger-600'}`}>
-                    {totalPnL >= 0 ? '+' : ''}{((totalPnL / totalInvestment) * 100).toFixed(2)}%
+                    {totalPnL >= 0 ? '+' : ''}{totalInvestment > 0 ? (((totalPnL / totalInvestment) * 100).toFixed(2) + '%') : '0.00%'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-600">Win Rate</span>
                   <span className="text-sm font-medium text-gray-900">
-                    {portfolioData.portfolio.length > 0 ? ((winningPositions / portfolioData.portfolio.length) * 100).toFixed(1) : 0}%
+                    {portfolioData.portfolio.length > 0 ? ((winningPositions / portfolioData.portfolio.length) * 100).toFixed(1) : '0.0'}%
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-600">Avg P&L per Position</span>
                   <span className={`text-sm font-medium ${totalPnL >= 0 ? 'text-success-600' : 'text-danger-600'}`}>
-                    ₹{(totalPnL / (portfolioData.portfolio.length || 1)).toFixed(2)}
+                    ₹{portfolioData.portfolio.length > 0 ? (totalPnL / portfolioData.portfolio.length).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0.00'}
                   </span>
                 </div>
               </div>

@@ -179,31 +179,31 @@ class PortfolioService:
                 logger.error(error_msg)
                 raise HTTPException(status_code=500, detail=error_msg)
                 
-                logger.info(f"Order API Response: {response.status_code} - {response.text}")
-                
-                if response.status_code != 200:
-                    error_msg = f"Order placement failed: {response.text}"
-                    logger.error(error_msg)
-                    raise HTTPException(
-                        status_code=response.status_code,
-                        detail=error_msg
-                    )
+            logger.info(f"Order API Response: {response.status_code} - {response.text}")
+            
+            if response.status_code != 200:
+                error_msg = f"Order placement failed: {response.text}"
+                logger.error(error_msg)
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=error_msg
+                )
 
-                result = response.json()
-                if result.get("stat") != "Ok":
-                    error_msg = result.get("emsg", "Order placement failed")
-                    logger.error(f"Order placement error: {error_msg}")
-                    raise HTTPException(
-                        status_code=400,
-                        detail=error_msg
-                    )
+            result = response.json()
+            if result.get("stat") != "Ok":
+                error_msg = result.get("emsg", "Order placement failed")
+                logger.error(f"Order placement error: {error_msg}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=error_msg
+                )
 
-                logger.info(f"Order placed successfully: {result}")
-                return {
-                    "status": "success",
-                    "order_id": result.get("norenordno"),
-                    "message": "Order placed successfully"
-                }
+            logger.info(f"Order placed successfully: {result}")
+            return {
+                "status": "success",
+                "order_id": result.get("norenordno"),
+                "message": "Order placed successfully"
+            }
 
             # Call Flattrade API to place order
             response = await flattrade_client.place_order(token, order_data)
@@ -287,7 +287,103 @@ class PortfolioService:
     @staticmethod
     def _parse_position_data(item: Dict[str, Any]) -> Position:
         """Parse raw position data from API to Position model"""
-        # Ensure item is a dictionary
+        if not isinstance(item, dict):
+            raise ValueError("Invalid position data format")
+            
+        try:
+            # Get NSE symbol details
+            nse_symbol = next((sym for sym in item.get('exch_tsym', []) 
+                             if sym.get('exch') == 'NSE'), None)
+            
+            if not nse_symbol:
+                raise ValueError("No NSE symbol found")
+                
+            symbol = nse_symbol['tsym'].replace('-EQ', '')
+            quantity = int(float(item.get('npoadqty', 0)))
+            entry_price = float(item.get('upldprc', 0))
+            current_price = float(item.get('upldprc', 0))  # We'll need to get current price from market data
+            
+            # Calculate P&L
+            pnl = (current_price - entry_price) * quantity if quantity > 0 else 0.0
+            
+            return Position(
+                symbol=symbol,
+                quantity=quantity,
+                side="LONG",
+                entry_price=entry_price,
+                current_price=current_price,
+                pnl=pnl
+            )
+        except (ValueError, TypeError, AttributeError) as e:
+            logger.error(f"Error parsing position data: {str(e)}, data: {item}")
+            raise
+        
+        try:
+            # Extract and clean symbol (remove -EQ suffix if present)
+            symbol = item.get("tsym", "") or item.get("tradingsymbol", "") or item.get("symbol", "")
+            if "-EQ" in symbol:
+                symbol = symbol.split("-")[0]
+            
+            # Extract quantity with proper type conversion
+            qty_str = item.get("holdqty", "") or item.get("netqty", "") or item.get("quantity", "0")
+            quantity = abs(int(float(qty_str)))
+            
+            # Extract prices
+            entry_price = float(item.get("purchasePrice", "") or item.get("avgprc", "") or item.get("entry_price", "0"))
+            current_price = float(item.get("ltp", "") or item.get("cprc", "") or item.get("current_price", "0"))
+            
+            # Calculate or get P&L
+            pnl = float(item.get("dayPL", "") or item.get("rpnl", "") or item.get("pnl", "0"))
+            
+            return Position(
+                symbol=symbol,
+                quantity=quantity,
+                side="LONG",  # Holdings are always long positions
+                entry_price=entry_price,
+                current_price=current_price,
+                pnl=pnl
+            )
+            
+        except (ValueError, TypeError) as e:
+            logger.error(f"Error parsing position data: {str(e)} for item: {item}")
+            return Position(
+                symbol=str(item.get("tsym", "UNKNOWN")),
+                quantity=0,
+                side="LONG",
+                entry_price=0.0,
+                current_price=0.0,
+                pnl=0.0
+            )
+            
+        try:
+            # Extract values with proper type conversion and defaults
+            symbol = str(item.get("symbol", ""))
+            quantity = abs(int(float(item.get("quantity", 0))))
+            entry_price = float(item.get("entry_price", 0))
+            current_price = float(item.get("current_price", 0))
+            pnl = float(item.get("pnl", 0))
+            side = str(item.get("side", "LONG"))
+            
+            return Position(
+                symbol=symbol,
+                quantity=quantity,
+                side=side,
+                entry_price=entry_price,
+                current_price=current_price,
+                pnl=pnl
+            )
+        except (ValueError, TypeError) as e:
+            logger.error(f"Error parsing position data: {str(e)}")
+            # Return a default position if parsing fails
+            return Position(
+                symbol="UNKNOWN",
+                quantity=0,
+                side="LONG",
+                entry_price=0.0,
+                current_price=0.0,
+                pnl=0.0
+            )
+        
         if not isinstance(item, dict):
             logger.warning(f"Invalid position data type: {type(item)}")
             raise ValueError("Position data must be a dictionary")
@@ -343,6 +439,16 @@ class PortfolioService:
     def calculate_portfolio_stats(positions: List[Position]) -> PortfolioStats:
         """Calculate portfolio statistics"""
         if not positions:
+            return PortfolioStats(
+                total_pnl=0.0,
+                total_investment=0.0,
+                current_value=0.0,
+                total_quantity=0,
+                winning_positions=0,
+                losing_positions=0,
+                best_performer=None,
+                worst_performer=None
+            )
             return PortfolioStats(
                 total_pnl=0.0,
                 total_investment=0.0,
@@ -423,57 +529,81 @@ class PortfolioService:
             )
         ]
     
+    async def get_holdings(self, token: str) -> List[Position]:
+        """Get current holdings"""
+        try:
+            response_data = await flattrade_client.get_holdings(token)
+            logger.debug(f"Raw holdings response: {response_data}")
+            
+            # Handle Flattrade's success response format
+            if isinstance(response_data, dict):
+                if response_data.get("stat") == "Ok":
+                    holdings_data = response_data.get("data", [])
+                    if isinstance(holdings_data, list):
+                        return [self._parse_position_data(pos) for pos in holdings_data if isinstance(pos, dict)]
+                else:
+                    error_msg = response_data.get("emsg", "Unknown error from Flattrade API")
+                    logger.error(f"Flattrade API error: {error_msg}")
+                    raise HTTPException(status_code=400, detail=error_msg)
+                    
+                            
+            logger.error(f"Unexpected response format from Flattrade API: {response_data}")
+            raise HTTPException(status_code=500, detail="Invalid response format from Flattrade API")
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to get holdings: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
+
     async def get_portfolio(self, token: str) -> Dict[str, Any]:
         """Get user's portfolio with positions and statistics"""
         try:
             # Fetch holdings from Flattrade API
             response_data = await flattrade_client.get_holdings(token)
+            logger.debug('Raw holdings response:', response_data)
+
+            portfolio = []
             
-            # Handle no data case
+            # Process the holdings data
             if isinstance(response_data, dict) and response_data.get("success"):
-                if response_data.get("message") == "No data available":
-                    portfolio = []
-                else:
-                    portfolio = []
-            elif isinstance(response_data, list):
-                if len(response_data) == 0:
-                    portfolio = []
-                else:
-                    # Process position data
-                    portfolio = []
-                    for item in response_data:
+                holdings_data = response_data.get("data", [])
+                if holdings_data:
+                    for holding in holdings_data:
                         try:
-                            # Ensure item is a dictionary
-                            if isinstance(item, str):
-                                try:
-                                    item = json.loads(item)
-                                except json.JSONDecodeError:
-                                    logger.warning(f"Failed to parse position data string: {item}")
-                                    continue
-                                    
-                            if not isinstance(item, dict):
-                                logger.warning(f"Skipping invalid position data type: {type(item)}")
-                                continue
-                                
-                            position = self._parse_position_data(item)
-                            if position.symbol and position.quantity != 0:
+                            # Create Position objects from the standardized format
+                            position = Position(
+                                symbol=holding["symbol"],
+                                quantity=holding["quantity"],
+                                side=holding["side"],
+                                entry_price=holding["entry_price"],
+                                current_price=holding["current_price"],
+                                pnl=holding["pnl"]
+                            )
+                            if position.symbol and position.quantity > 0:
                                 portfolio.append(position)
                         except Exception as e:
-                            logger.warning(f"Failed to parse position data: {str(e)}")
+                            logger.warning(f"Failed to create position from holding data: {str(e)}")
                             continue
             else:
-                portfolio = []
+                logger.warning(f"Unexpected holdings response format: {response_data}")
             
-            # Refresh market data if we have positions
-            if portfolio:
-                portfolio = await self.refresh_market_data(portfolio, token)
-            
-            # Calculate statistics
+            # Calculate portfolio statistics
             stats = self.calculate_portfolio_stats(portfolio)
             
-            return {
+            # Prepare the response
+            portfolio_data = {
                 "success": True,
-                "portfolio": [pos.dict() for pos in portfolio],
+                "portfolio": [
+                    {
+                        "symbol": pos.symbol,
+                        "quantity": pos.quantity,
+                        "side": pos.side,
+                        "entry_price": pos.entry_price,
+                        "current_price": pos.current_price,
+                        "pnl": pos.pnl
+                    } for pos in portfolio
+                ],
                 "total_pnl": stats.total_pnl,
                 "total_investment": stats.total_investment,
                 "current_value": stats.current_value,
@@ -483,6 +613,9 @@ class PortfolioService:
                 "best_performer": stats.best_performer.dict() if stats.best_performer else None,
                 "worst_performer": stats.worst_performer.dict() if stats.worst_performer else None
             }
+
+            logger.info(f"Returning portfolio with {len(portfolio)} positions")
+            return portfolio_data
             
         except Exception as e:
             logger.error(f"Failed to get portfolio: {str(e)}")
