@@ -25,7 +25,7 @@ async def get_portfolio(session_token: str = Depends(get_current_session)):
     """Get portfolio stats and positions for dashboard"""
     try:
         data = await portfolio_service.get_portfolio(session_token)
-        print('Portfolio Data in get_portfolio:', data)
+        #print('Portfolio Data in get_portfolio:', data)
         return jsonable_encoder(data)
     except Exception as e:
         return {
@@ -48,6 +48,18 @@ async def get_holdings(session_token: str = Depends(get_current_session)):
     try:
         return await portfolio_service.get_holdings(session_token)
     except HTTPException as he:
+        raise he
+
+@router.get("/performance/history")
+async def get_portfolio_performance(
+    days: int = 30,
+    session_token: str = Depends(get_current_session)
+):
+    """Get historical portfolio performance data"""
+    try:
+        return await portfolio_service.get_historical_performance(session_token, days)
+    except HTTPException as he:
+        raise he
         logger.error(f"HTTP error in get_holdings: {he.detail}")
         raise he
     except Exception as e:

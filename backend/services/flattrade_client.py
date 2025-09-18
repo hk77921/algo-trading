@@ -482,7 +482,7 @@ class FlattradeClient:
                 response.raise_for_status()
                 
                 data = response.json()
-                print(f"Live price response data: {data} and its type is {type(data)}")
+                #print(f"Live price response data: {data} and its type is {type(data)}")
                 if data.get("stat") == "Ok":
                     return float(data.get("lp")) if data.get("lp") else data.get("lp")
                 

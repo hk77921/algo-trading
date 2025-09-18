@@ -1,0 +1,611 @@
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { Navigate } from 'react-router-dom';
+import { TrendingUp, TrendingDown, DollarSign, Package, Trophy, AlertTriangle, RefreshCw } from 'lucide-react';
+import axios from 'axios';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+} from 'chart.js';
+import { Line } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+} from 'chart.js';
+import { Line } from 'react-chartjs-2';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend
+);
+
+const Portfolio = () => {
+  const { isAuthenticated } = useAuth();
+  const [portfolioData, setPortfolioData] = useState(null);
+  const [performanceData, setPerformanceData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const chartOptions = {
+    responsive: true,
+    plugins: {
+      legend: {
+        position: 'top',
+      },
+      title: {
+        display: true,
+        text: 'Portfolio Performance',
+      },
+    },
+    scales: {
+      y: {
+        beginAtZero: false,
+      },
+    },
+  };
+
+  useEffect(() => {
+    if (isAuthenticated()) {
+      fetchPortfolio();
+      fetchPerformanceData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
+
+  if (!isAuthenticated()) {
+    return <Navigate to="/login" />;
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <RefreshCw className="h-8 w-8 animate-spin text-primary-500 mx-auto" />
+          <p className="mt-2 text-gray-600">Loading portfolio data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="container mx-auto px-4 py-8 space-y-6">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-bold text-gray-900">Portfolio Overview</h2>
+        <button
+          onClick={fetchPortfolio}
+          disabled={refreshing}
+          className="flex items-center px-4 py-2 bg-primary-500 text-white rounded-md hover:bg-primary-600 transition-colors disabled:opacity-50"
+        >
+          <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+          Refresh
+        </button>
+      </div>
+
+  const fetchPerformanceData = async () => {
+    try {
+      const response = await axios.get('/api/portfolio/performance/history');
+      if (response.data) {
+        setPerformanceData(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching performance data:', error);
+    }
+  };
+
+  const parseBackendArray = (arr) => {
+    // arr: array of backend items like the sample the user provided
+    // We will create positions in the shape expected by the UI:
+    // { symbol, quantity, entry_price, current_price, pnl, side }
+    if (!Array.isArray(arr)) return [];
+
+    return arr.map((item) => {
+      // safe extraction helpers
+      const upldprc = parseFloat(item.upldprc || '0') || 0; // we'll treat this as current price if no separate current price provided
+      const qty = parseInt(item.npoadqty || item.holdqty || '0', 10) || 0;
+      // pick readable symbol from exch_tsym array - prefer NSE token display if present
+      let symbol = '';
+      try {
+        if (Array.isArray(item.exch_tsym) && item.exch_tsym.length > 0) {
+          // pick first whose exch is NSE if exists, else first element
+          const nse = item.exch_tsym.find((e) => e.exch === 'NSE');
+          symbol = (nse || item.exch_tsym[0]).tsym || '';
+        }
+      } catch (e) {
+        symbol = '';
+      }
+
+      // For entry price we don't have a clear field in sample. Use upldprc as both entry and current to avoid NaN.
+      // If you later get separate fields for entry price you can replace this mapping.
+      const entry_price = upldprc;
+      const current_price = upldprc;
+
+      // no P&L provided in sample; calculate 0 for now (current - entry) * qty
+      const pnl = (current_price - entry_price) * qty;
+
+      // side not provided; default to 'LONG' or infer from quantity sign in future
+      const side = qty >= 0 ? 'LONG' : 'SHORT';
+
+      return {
+        symbol,
+        quantity: qty,
+        entry_price,
+        current_price,
+        pnl,
+        side,
+        // keep raw backend item for debugging / future fields
+        _raw: item
+      };
+    });
+  };
+
+  const computeSummary = (positions) => {
+    const summary = {
+      current_value: 0,
+      total_investment: 0,
+      total_pnl: 0,
+      total_quantity: 0,
+      winning_positions: 0,
+      losing_positions: 0,
+      best_performer: null,
+      worst_performer: null
+    };
+
+    positions.forEach((p) => {
+      const marketValue = (p.current_price || 0) * (p.quantity || 0);
+      const invest = (p.entry_price || 0) * (p.quantity || 0);
+      const pnl = p.pnl || (marketValue - invest); // fallback
+      summary.current_value += marketValue;
+      summary.total_investment += invest;
+      summary.total_pnl += pnl;
+      summary.total_quantity += (p.quantity || 0);
+
+      if (p.quantity > 0) {
+        if (p.pnl > 0) summary.winning_positions += 1;
+        if (p.pnl < 0) summary.losing_positions += 1;
+      }
+
+      // best/worst by absolute pnl
+      if (!summary.best_performer || (p.pnl || 0) > (summary.best_performer.pnl || 0)) {
+        summary.best_performer = { symbol: p.symbol, pnl: p.pnl || 0 };
+      }
+      if (!summary.worst_performer || (p.pnl || 0) < (summary.worst_performer.pnl || 0)) {
+        summary.worst_performer = { symbol: p.symbol, pnl: p.pnl || 0 };
+      }
+    });
+
+    return summary;
+  };
+
+  const fetchPortfolio = async () => {
+    try {
+      setRefreshing(true);
+      setLoading(true);
+      const response = await axios.get('/api/portfolio'); // keep your endpoint
+      let data = response.data;
+
+      // If backend directly returns an array (the sample you pasted), normalize it
+      let positions = [];
+      if (Array.isArray(data)) {
+        positions = parseBackendArray(data);
+      } else if (data && Array.isArray(data.portfolio)) {
+        // already in expected shape - use existing mapping but ensure numeric fields
+        positions = data.portfolio.map((p) => ({
+          symbol: p.symbol || p.tsym || p.symbol_name || '',
+          quantity: Number(p.quantity || p.qty || p.npoadqty || p.holdqty) || 0,
+          entry_price: Number(p.entry_price || p.avg_price || p.upldprc) || 0,
+          current_price: Number(p.current_price || p.last_price || p.upldprc) || 0,
+          pnl: Number(p.pnl || 0),
+          side: p.side || 'LONG',
+          _raw: p
+        }));
+      } else if (data && data.success === false) {
+        // handle error responses gracefully
+        console.error('Backend returned failure', data);
+        setPortfolioData(null);
+        return;
+      } else {
+        // unknown shape: try to detect nested array in response.data.data or response.data.result
+        const possible = data?.data || data?.result || null;
+        if (Array.isArray(possible)) {
+          positions = parseBackendArray(possible);
+        } else {
+          // nothing we can parse
+          positions = [];
+        }
+      }
+
+      // compute summary fields
+      const summary = computeSummary(positions);
+
+      const final = {
+        portfolio: positions,
+        total_pnl: summary.total_pnl,
+        total_investment: summary.total_investment,
+        current_value: summary.current_value,
+        total_quantity: summary.total_quantity,
+        winning_positions: summary.winning_positions,
+        losing_positions: summary.losing_positions,
+        best_performer: summary.best_performer,
+        worst_performer: summary.worst_performer
+      };
+
+      setPortfolioData(final);
+    } catch (error) {
+      console.error('Error fetching portfolio:', error);
+      setPortfolioData(null);
+    } finally {
+      setRefreshing(false);
+      setLoading(false);
+    }
+  };
+
+  // Debounce refresh to prevent rapid repeated calls
+  const handleRefresh = () => {
+    if (!refreshing) {
+      fetchPortfolio();
+    }
+  };
+
+  if (!isAuthenticated()) {
+    return <Navigate to="/login" />;
+  }
+
+  // Show error state if portfolio data failed to load
+  if (!loading && !portfolioData) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64">
+        <AlertTriangle className="h-12 w-12 text-danger-600 mb-4" />
+        <p className="text-lg text-gray-900">Failed to load portfolio data</p>
+        <button onClick={handleRefresh} className="btn-primary mt-4">
+          Try Again
+        </button>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      </div>
+    );
+  }
+
+  const totalValue = portfolioData?.current_value || 0;
+  const totalPnL = portfolioData?.total_pnl || 0;
+  const totalInvestment = portfolioData?.total_investment || 0;
+  const totalQuantity = portfolioData?.total_quantity || 0;
+  const winningPositions = portfolioData?.winning_positions || 0;
+  const losingPositions = portfolioData?.losing_positions || 0;
+  const bestPerformer = portfolioData?.best_performer;
+  const worstPerformer = portfolioData?.worst_performer;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Portfolio</h1>
+          <p className="text-gray-600 mt-2">Your current positions and performance</p>
+        </div>
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="btn-primary flex items-center space-x-2"
+        >
+          <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+          <span>{refreshing ? 'Refreshing...' : 'Refresh'}</span>
+        </button>
+      </div>
+
+      {/* Portfolio Summary */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="card">
+          <div className="flex items-center">
+            <div className="p-3 rounded-full bg-primary-100">
+              <DollarSign className="h-6 w-6 text-primary-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Current Value</p>
+              <p className="text-2xl font-bold text-gray-900">₹{Number(totalValue).toLocaleString()}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="flex items-center">
+            <div className="p-3 rounded-full bg-success-100">
+              <TrendingUp className="h-6 w-6 text-success-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Total P&L</p>
+              <p className={`text-2xl font-bold ${totalPnL >= 0 ? 'text-success-600' : 'text-danger-600'}`}>
+                ₹{Number(totalPnL).toLocaleString()}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="flex items-center">
+            <div className="p-3 rounded-full bg-warning-100">
+              <Package className="h-6 w-6 text-warning-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Total Investment</p>
+              <p className="text-2xl font-bold text-gray-900">₹{Number(totalInvestment).toLocaleString()}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="flex items-center">
+            <div className="p-3 rounded-full bg-blue-100">
+              <Package className="h-6 w-6 text-blue-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Total Quantity</p>
+              <p className="text-2xl font-bold text-gray-900">{Number(totalQuantity).toLocaleString()}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Performance Metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="card">
+          <div className="text-center">
+            <div className="flex items-center justify-center mb-2">
+              <Trophy className="h-8 w-8 text-yellow-500" />
+            </div>
+            <p className="text-2xl font-bold text-success-600">{winningPositions}</p>
+            <p className="text-sm text-gray-600">Winning Positions</p>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="text-center">
+            <div className="flex items-center justify-center mb-2">
+              <AlertTriangle className="h-8 w-8 text-red-500" />
+            </div>
+            <p className="text-2xl font-bold text-danger-600">{losingPositions}</p>
+            <p className="text-sm text-gray-600">Losing Positions</p>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="text-center">
+            <p className="text-2xl font-bold text-gray-900">
+              {portfolioData?.portfolio?.length || 0}
+            </p>
+            <p className="text-sm text-gray-600">Total Positions</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Best & Worst Performers */}
+      {(bestPerformer || worstPerformer) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {bestPerformer && (
+            <div className="card bg-gradient-to-r from-green-50 to-green-100 border-green-200">
+              <h3 className="text-lg font-semibold text-green-800 mb-4 flex items-center">
+                <Trophy className="h-5 w-5 mr-2 text-yellow-600" />
+                Best Performer
+              </h3>
+              <div className="text-center">
+                <p className="text-2xl font-bold text-green-800">{bestPerformer.symbol}</p>
+                <p className="text-lg text-green-600">+₹{Number(bestPerformer.pnl).toLocaleString()}</p>
+              </div>
+            </div>
+          )}
+
+          {worstPerformer && (
+            <div className="card bg-gradient-to-r from-red-50 to-red-100 border-red-200">
+              <h3 className="text-lg font-semibold text-red-800 mb-4 flex items-center">
+                <AlertTriangle className="h-5 w-5 mr-2 text-red-600" />
+                Worst Performer
+              </h3>
+              <div className="text-center">
+                <p className="text-2xl font-bold text-red-800">{worstPerformer.symbol}</p>
+                <p className="text-lg text-red-600">₹{Number(worstPerformer.pnl).toLocaleString()}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Portfolio Performance Chart */}
+      <div className="card">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Performance Overview</h3>
+        <div className="h-64">
+          {performanceData.length > 0 ? (
+            <Line
+              options={chartOptions}
+              data={{
+                labels: performanceData.map(d => new Date(d.timestamp).toLocaleDateString()),
+                datasets: [
+                  {
+                    label: 'Portfolio Value',
+                    data: performanceData.map(d => d.total_value),
+                    borderColor: 'rgb(75, 192, 192)',
+                    tension: 0.1
+                  },
+                  {
+                    label: 'Total P&L',
+                    data: performanceData.map(d => d.total_pnl),
+                    borderColor: 'rgb(255, 99, 132)',
+                    tension: 0.1
+                  }
+                ]
+              }}
+            />
+          ) : (
+            <div className="h-full flex items-center justify-center">
+              <div className="text-center">
+                <TrendingUp className="h-16 w-16 text-primary-400 mx-auto mb-4" />
+                <p className="text-gray-600">No performance data available</p>
+              </div>
+            </div>
+          )}
+          </div>
+        </div>
+      </div>
+
+      {/* Positions Table */}
+      <div className="card">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Current Positions</h3>
+        {portfolioData?.portfolio && portfolioData.portfolio.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Symbol
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Quantity
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Entry Price
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Current Price
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Market Value
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    P&L
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    P&L %
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {portfolioData.portfolio.map((position, index) => {
+                  const marketValue = (position.quantity || 0) * (position.current_price || 0);
+                  const investment = (position.quantity || 0) * (position.entry_price || 0);
+                  const pnl = position.pnl || (marketValue - investment);
+                  const pnlPercent = investment > 0 ? ((pnl / investment) * 100) : 0;
+                  
+                  return (
+                    <tr key={index} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">{position.symbol}</div>
+                        <div className="text-sm text-gray-500">{position.side}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {Number(position.quantity).toLocaleString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        ₹{Number(position.entry_price).toLocaleString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        ₹{Number(position.current_price).toLocaleString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        ₹{Number(marketValue).toLocaleString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`text-sm font-medium ${pnl >= 0 ? 'text-success-600' : 'text-danger-600'}`}>
+                          {pnl >= 0 ? '+' : ''}₹{Number(pnl).toLocaleString()}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`text-sm font-medium ${pnlPercent >= 0 ? 'text-success-600' : 'text-danger-600'}`}>
+                          {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            <Package className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-600">No positions found</p>
+            <p className="text-sm text-gray-500">Start trading to see your positions here</p>
+          </div>
+        )}
+      </div>
+
+      {/* Portfolio Allocation */}
+      {portfolioData?.portfolio && portfolioData.portfolio.length > 0 && (
+        <div className="card">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Portfolio Allocation</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <h4 className="text-md font-medium text-gray-700 mb-3">By Stock</h4>
+              <div className="space-y-3">
+                {portfolioData.portfolio.map((position, index) => {
+                  const marketValue = position.quantity * position.current_price;
+                  const allocation = totalValue > 0 ? (marketValue / totalValue) * 100 : 0;
+                  
+                  return (
+                    <div key={index} className="flex items-center justify-between">
+                      <span className="text-sm text-gray-600">{position.symbol}</span>
+                      <div className="flex items-center space-x-2">
+                        <div className="w-24 bg-gray-200 rounded-full h-2">
+                          <div 
+                            className="bg-primary-600 h-2 rounded-full" 
+                            style={{ width: `${allocation}%` }}
+                          ></div>
+                        </div>
+                        <span className="text-sm text-gray-900 w-12 text-right">{allocation.toFixed(1)}%</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            
+            <div>
+              <h4 className="text-md font-medium text-gray-700 mb-3">Performance Summary</h4>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">Total Return</span>
+                  <span className={`text-sm font-medium ${totalPnL >= 0 ? 'text-success-600' : 'text-danger-600'}`}>
+                    {totalPnL >= 0 ? '+' : ''}{totalInvestment > 0 ? (((totalPnL / totalInvestment) * 100).toFixed(2) + '%') : '0.00%'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">Win Rate</span>
+                  <span className="text-sm font-medium text-gray-900">
+                    {portfolioData.portfolio.length > 0 ? ((winningPositions / portfolioData.portfolio.length) * 100).toFixed(1) : '0.0'}%
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">Avg P&L per Position</span>
+                  <span className={`text-sm font-medium ${totalPnL >= 0 ? 'text-success-600' : 'text-danger-600'}`}>
+                    ₹{portfolioData.portfolio.length > 0 ? (totalPnL / portfolioData.portfolio.length).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0.00'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default Portfolio;

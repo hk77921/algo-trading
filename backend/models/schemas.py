@@ -48,14 +48,39 @@ class OrderHistoryItem(BaseModel):
     price: float = 0.0
     trigger_price: Optional[float] = None
     product: str = ""
-    status: str = ""
-    order_timestamp: datetime
-    filled_quantity: int = 0
-    pending_quantity: int = 0
-    average_price: Optional[float] = None
+
+class PortfolioPerformance(BaseModel):
+    timestamp: datetime
+    total_value: float
+    day_pnl: float
+    total_pnl: float
+
+# class Position(BaseModel):
+#     symbol: str
+#     quantity: int
+#     entry_price: float
+#     current_price: float
+#     pnl: float
+#     side: str
+
+# class PortfolioStats(BaseModel):
+#     total_pnl: float
+#     total_investment: float
+#     current_value: float
+#     total_quantity: int
+#     winning_positions: int
+#     losing_positions: int
+#     best_performer: Optional[dict]
+#     worst_performer: Optional[dict]
+#     historical_performance: List[PortfolioPerformance] = []
+#     status: str = ""
+#     order_timestamp: datetime
+#     filled_quantity: int = 0
+#     pending_quantity: int = 0
+#     average_price: Optional[float] = None
     
-    class Config:
-        from_attributes = True
+#     class Config:
+#         from_attributes = True
 
 class Position(BaseModel):
     symbol: str
@@ -70,6 +95,17 @@ class Position(BaseModel):
             float: lambda v: round(v, 2) if v is not None else None
         }
 
+# class PortfolioStats(BaseModel):
+#     total_pnl: float
+#     total_investment: float
+#     current_value: float
+#     total_quantity: int
+#     winning_positions: int
+#     losing_positions: int
+#     best_performer: Optional[Position] = None
+#     worst_performer: Optional[Position] = None
+
+
 class PortfolioStats(BaseModel):
     total_pnl: float
     total_investment: float
@@ -79,6 +115,19 @@ class PortfolioStats(BaseModel):
     losing_positions: int
     best_performer: Optional[Position] = None
     worst_performer: Optional[Position] = None
+    historical_performance: List[PortfolioPerformance] = []
+    status: str = ""
+    order_timestamp: Optional[Position] = None
+    filled_quantity: int = 0
+    pending_quantity: int = 0
+    average_price: Optional[float] = None
+    
+    class Config:
+        from_attributes = True
+
+
+
+
 
 class PortfolioResponse(BaseModel):
     success: bool
