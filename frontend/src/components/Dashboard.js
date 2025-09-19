@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Navigate } from 'react-router-dom';
-import { TrendingUp, TrendingDown, DollarSign, Activity, ArrowUpRight, ArrowDownRight, RefreshCw, Trophy, AlertTriangle, Wifi, WifiOff } from 'lucide-react';
+import { TrendingUp, TrendingDown,  Activity, ArrowUpRight, ArrowDownRight, RefreshCw, Trophy, AlertTriangle, Wifi, WifiOff, IndianRupee } from 'lucide-react';
 import axios from 'axios';
+import HoldingsChart from './HoldingsChart';
+import PnLChart from './PnLChart';
 
 const Dashboard = () => {
   const { isAuthenticated } = useAuth();
@@ -25,21 +27,29 @@ const Dashboard = () => {
       setRefreshing(true);
       const [portfolioRes, ordersRes] = await Promise.all([
         axios.get('/api/portfolio'),
-        axios.get('/api/orders')
+        axios.get('/api/orders/history')
       ]);
 
       setPortfolioData(portfolioRes.data);
       setOrdersData(ordersRes.data);
       
-      // Mock market data for popular stocks
+      // Fetch real market data for popular stocks
       const popularStocks = ['RELIANCE', 'TCS', 'INFY', 'HDFC', 'ICICIBANK'];
-      const mockMarketData = popularStocks.map(symbol => ({
-        symbol,
-        price: Math.random() * 1000 + 500,
-        change: (Math.random() - 0.5) * 100,
-        volume: Math.floor(Math.random() * 1000000)
-      }));
-      setMarketData(mockMarketData);
+      const marketDataPromises = popularStocks.map(symbol => 
+        axios.get(`/api/market/quote/${symbol}`)
+      );
+      
+      const marketResponses = await Promise.all(marketDataPromises);
+      const realMarketData = marketResponses.map((response, index) => {
+        const data = response.data;
+        return {
+          symbol: popularStocks[index],
+          price: data.ltp || 0,
+          change: data.change_perc || 0,
+          volume: data.volume || 0
+        };
+      });
+      setMarketData(realMarketData);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
     } finally {
@@ -108,12 +118,12 @@ const Dashboard = () => {
         <div className="card">
           <div className="flex items-center">
             <div className="p-2 rounded-full bg-primary-100">
-              <DollarSign className="h-6 w-6 text-primary-600" />
+              <IndianRupee className="h-6 w-6 text-primary-600" />
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Total P&L</p>
               <p className={`text-2xl font-bold ${isPositive ? 'text-success-600' : 'text-danger-600'}`}>
-                ₹{totalPnL.toLocaleString()}
+                {totalPnL.toLocaleString()}
               </p>
             </div>
           </div>
@@ -232,6 +242,18 @@ const Dashboard = () => {
         </div>
       </div>
 
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="card">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Holdings Distribution</h3>
+          <HoldingsChart portfolio={portfolioData?.portfolio || []} />
+        </div>
+        <div className="card">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">P&L Distribution</h3>
+          <PnLChart portfolio={portfolioData?.portfolio || []} />
+        </div>
+      </div>
+
       {/* Best & Worst Performers */}
       {(bestPerformer || worstPerformer) && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -263,82 +285,7 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* Portfolio Overview */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="card">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Portfolio Overview</h3>
-          {portfolioData?.portfolio && portfolioData.portfolio.length > 0 ? (
-            <div className="space-y-3">
-              {portfolioData.portfolio.slice(0, 5).map((position, index) => (
-                <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <div>
-                    <p className="font-medium text-gray-900">{position.symbol}</p>
-                    <p className="text-sm text-gray-600">{position.quantity} shares</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-medium text-gray-900">₹{position.current_price.toLocaleString()}</p>
-                    <p className={`text-sm ${position.pnl >= 0 ? 'text-success-600' : 'text-danger-600'}`}>
-                      {position.pnl >= 0 ? '+' : ''}₹{position.pnl.toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-              ))}
-              {portfolioData.portfolio.length > 5 && (
-                <div className="text-center py-2">
-                  <p className="text-sm text-gray-500">
-                    +{portfolioData.portfolio.length - 5} more positions
-                  </p>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-center py-8">
-              <TrendingUp className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-600">No positions found</p>
-              <p className="text-sm text-gray-500">Start trading to see your portfolio</p>
-            </div>
-          )}
-        </div>
-
-        <div className="card">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Orders</h3>
-          {ordersData?.orders && ordersData.orders.length > 0 ? (
-            <div className="space-y-3">
-              {ordersData.orders.slice(0, 5).map((order, index) => (
-                <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <div>
-                    <p className="font-medium text-gray-900">{order.symbol}</p>
-                    <p className="text-sm text-gray-600">{order.order_type} • {order.quantity}</p>
-                  </div>
-                  <div className="text-right">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      order.side === 'BUY' 
-                        ? 'bg-success-100 text-success-800' 
-                        : 'bg-danger-100 text-danger-800'
-                    }`}>
-                      {order.side}
-                    </span>
-                    <p className="text-sm text-gray-500 mt-1">{order.status}</p>
-                  </div>
-                </div>
-              ))}
-              {ordersData.orders.length > 5 && (
-                <div className="text-center py-2">
-                  <p className="text-sm text-gray-500">
-                    +{ordersData.orders.length - 5} more orders
-                  </p>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-center py-8">
-              <Activity className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-600">No orders found</p>
-              <p className="text-sm text-gray-500">Start trading to see your orders</p>
-            </div>
-          )}
-        </div>
-      </div>
+      {/* Market Watch Section will follow */}
 
       {/* Market Watch */}
       <div className="card">
