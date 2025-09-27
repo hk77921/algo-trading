@@ -1,0 +1,179 @@
+# dependencies.py  (replace file)
+from fastapi import Header, HTTPException, status, WebSocket
+from typing import Optional
+from core.logging import get_logger
+
+logger = get_logger(__name__)
+
+
+
+# --- HTTP dependency for regular endpoints (restore this) ---
+async def get_current_session(authorization: Optional[str] = Header(None)):
+    """
+    HTTP dependency used by API routes.
+    Accepts:
+      - Authorization: "Bearer <token>" or raw token
+    Returns:
+      - token string (or session object if you adapt it)
+    Raises:
+      - 401 if header missing
+      - 403 if validation fails
+    """
+    # Missing header -> 401
+    if not authorization:
+        # Keep message concise but useful for debugging
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Missing Authorization header")
+
+    auth = authorization.strip()
+    # Extract token from Bearer header if present
+    if auth.lower().startswith("bearer "):
+        token = auth.split(None, 1)[1]
+    else:
+        token = auth
+
+    # Optional: call a shared validation routine if you have it.
+    # If you implemented validate_token(token) earlier, call it here and return session object.
+    try:
+        # If you have a validate_token function, use:
+        # session = await validate_token(token)
+        # if not session:
+        #     raise HTTPException(status_code=403, detail="Invalid token")
+        # return session
+
+        # For now keep backwards-compatible: return the token string (caller uses it)
+        return token
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Unexpected error -> treat as 403
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Token validation failed")
+
+async def extract_token_from_websocket(websocket: WebSocket) -> Optional[str]:
+    """
+    Unified token extraction for WebSocket connections.
+    Accepts:
+      - query param: ?token=...
+      - Authorization header: "Bearer <token>" or raw token
+      - cookie 'token' (optional)
+    Returns token string or None.
+    """
+    try:
+        # Log for debugging (will show query params/headers — remove or mask in prod)
+        logger.debug("WebSocket headers: %s", dict(websocket.headers))
+        logger.debug("WebSocket query params: %s", dict(websocket.query_params))
+
+        # 1) query param (browser)
+        token = websocket.query_params.get("token") or websocket.query_params.get("access_token")
+        if token:
+            token = token.strip()
+            if token.lower().startswith("bearer "):
+                token = token.split(None, 1)[1]
+            logger.debug("Token extracted from query params (masked): %s", (token[:8] + "..."))
+            return token
+
+        # 2) Authorization header (non-browser clients)
+        auth = websocket.headers.get("authorization") or websocket.headers.get("Authorization")
+        if auth:
+            auth = auth.strip()
+            if auth.lower().startswith("bearer "):
+                token = auth.split(None, 1)[1]
+            else:
+                token = auth
+            logger.debug("Token extracted from Authorization header (masked): %s", (token[:8] + "..."))
+            return token
+
+        # 3) cookies
+        cookies = websocket.cookies or {}
+        cookie_token = cookies.get("token")
+        if cookie_token:
+            logger.debug("Token extracted from cookies (masked)")
+            return cookie_token
+
+        logger.debug("No token found in websocket request")
+        return None
+    except Exception as e:
+        logger.exception("Exception while extracting token from websocket: %s", e)
+        return None
+async def verify_ws_token(websocket: WebSocket) -> str:
+    """
+    TEMPORARY DEBUG: Log raw headers & query params; return token if present.
+    Replace with production verification after debugging.
+    """
+    try:
+        # Show what the server actually received
+        try:
+            headers = dict(websocket.headers)
+        except Exception:
+            headers = {"error": "could not read headers"}
+
+        try:
+            qs = dict(websocket.query_params)
+        except Exception:
+            qs = {"error": "could not read query_params"}
+
+        logger.warning("WS HANDSHAKE DEBUG — headers: %s", headers)
+        logger.warning("WS HANDSHAKE DEBUG — query_params: %s", qs)
+
+        # Also log origin if present
+        origin = websocket.headers.get("origin") or websocket.headers.get("Origin")
+        logger.warning("WS HANDSHAKE DEBUG — origin: %s", origin)
+
+        # Try to extract token from query param first (browser)
+        token = qs.get("token") or qs.get("access_token")
+        if token:
+            logger.warning("WS HANDSHAKE DEBUG — token found in query (masked): %s", token[:8] + "...")
+            return token
+
+        # Fallback: Authorization header
+        auth = websocket.headers.get("authorization") or websocket.headers.get("Authorization")
+        if auth:
+            logger.warning("WS HANDSHAKE DEBUG — token found in Authorization header (masked)")
+            if auth.lower().startswith("bearer "):
+                return auth.split(None, 1)[1]
+            return auth
+
+        # No token found — raise explicit 401 (handshake will be rejected)
+        logger.warning("WS HANDSHAKE DEBUG — NO token found; raising 401")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Missing token (temporary debug). Provide ?token=<session_token>")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("WS HANDSHAKE DEBUG — unexpected error: %s", e)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal debug error")
+
+async def verify_ws_token_old(websocket: WebSocket) -> str:
+    """
+    Validate token during WebSocket handshake.
+    Must be called BEFORE await websocket.accept().
+    Raises:
+      - HTTPException 401 if missing token
+      - HTTPException 403 if token invalid
+    Returns:
+      - validated session token (string) — or raise
+    """
+    token = await extract_token_from_websocket(websocket)
+    if not token:
+        # explicit about missing token; FastAPI will return 401 during handshake
+        logger.warning("WebSocket authentication failed: missing token")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Missing token. Provide ?token=<session_token> in WebSocket URL")
+
+    # At this point call your actual validation logic.
+    # If you have an auth_service, call it here. For now we keep behaviour
+    # backwards-compatible by returning the token (so other code may use it).
+    try:
+        # TODO: Replace this with real validation call:
+        # session = await auth_service.validate_token(token)
+        # if not session: raise HTTPException(status_code=403, detail="Invalid session token")
+        # return session
+        logger.info("WebSocket token present (masked) and handed to caller")
+        return token
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error validating token: %s", e)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Token validation failed")

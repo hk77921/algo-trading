@@ -592,7 +592,7 @@ class PortfolioService:
         """Get current holdings"""
         try:
             response_data = await flattrade_client.get_holdings(token)
-            logger.debug(f"Raw holdings response: {response_data}")
+            #logger.debug(f"Raw holdings response: {response_data}")
             
             # Handle Flattrade's success response format
             if isinstance(response_data, dict):
@@ -623,7 +623,7 @@ class PortfolioService:
         try:
             # Fetch holdings from Flattrade API
             response_data = await flattrade_client.get_holdings(token)
-            logger.debug('Raw holdings response:', response_data)
+            #logger.debug('Raw holdings response:', response_data)
 
             portfolio = []
             

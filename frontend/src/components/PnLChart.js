@@ -30,7 +30,7 @@ const PnLChart = ({ portfolio }) => {
     .slice(0, 7); // Show top 7 positions by P&L
 
   const data = {
-    labels: sortedPositions.map(p => p.tradingsymbol),
+    labels: sortedPositions.map(p => p.symbol),
     datasets: [
       {
         label: 'P&L Distribution',

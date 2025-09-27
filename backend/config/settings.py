@@ -1,11 +1,19 @@
 # config/settings.py
 from functools import lru_cache
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
 from typing import Optional
 import secrets
 
 class Settings(BaseSettings):
+    """Application settings"""
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        use_enum_values=True
+    )
+
     # Server settings
     HOST: str = "0.0.0.0"
     PORT: int = 8000
@@ -37,15 +45,16 @@ class Settings(BaseSettings):
     
     # Default User ID for API calls
     DEFAULT_USER_ID: str = "FZ12004"
-    
-    model_config = {
-        "env_file": ".env",
-        "env_file_encoding": "utf-8",
-        "case_sensitive": True,
-        "use_enum_values": True
-    }
 
+    # Base URLs for Frontend
+    REACT_APP_API_URL:str = "http://localhost:8000"
+    REACT_APP_WS_URL:str = "ws://localhost:8000"
+    
 @lru_cache
 def get_settings() -> Settings:
     """Get cached settings instance"""
-    return Settings()
+    try:
+        return Settings()
+    except Exception as e:
+        print(f"Error loading settings: {str(e)}")
+        raise

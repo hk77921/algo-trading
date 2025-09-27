@@ -1,4 +1,4 @@
-# services/flattrade_client.py - Enhanced with debugging and token validation
+# services/flattrade_client.py
 import hashlib
 import inspect
 import json
@@ -12,7 +12,7 @@ from core.logging import get_logger
 logger = get_logger(__name__)
 
 class FlattradeClient:
-    """Client for Flattrade API operations with enhanced debugging"""
+    """Client for Flattrade API operations"""
     
     def __init__(self):
         self.settings = get_settings()
@@ -28,17 +28,122 @@ class FlattradeClient:
         if not self.settings.DEFAULT_USER_ID:
             raise ValueError("DEFAULT_USER_ID is not configured")
         
+        self.base_url = "https://piconnect.flattrade.in/PiConnectTP"
+        self.timeout = 30.0  # Default timeout for API requests
         self.base_url = self.settings.FLATTRADE_BASE_URL_TRADE
         self.token_url = self.settings.FLATTRADE_TOKEN_URL
         self.api_key = self.settings.FLATTRADE_API_KEY
         self.api_secret = self.settings.FLATTRADE_API_SECRET
         self.timeout = 15.0
+            
+    async def get_time_price_data(
+        self,
+        session_token: str,
+        symbol: str,
+        start_time: int,
+        end_time: int,
+        interval: str = "15"
+    ) -> List[Dict[str, Any]]:
+        """
+        Get historical price data from FlatTrade
+        
+        Args:
+            session_token: User's session token
+            symbol: Trading symbol (e.g., 'RELIANCE-EQ')
+            start_time: Start time in Unix timestamp
+            end_time: End time in Unix timestamp
+            interval: Candle interval in minutes (default: 15)
+            
+        Returns:
+            List of candle data with time, open, high, low, close values
+        """
+        try:
+            # Prepare request data
+            data = {
+                    "uid": self.settings.DEFAULT_USER_ID,
+                    "exch": "NSE",
+                    "token": symbol,
+                    "st": str(start_time),
+                    "et": str(end_time),
+                    "intrv": interval
+               }
+            
+            
+            payload = f'jData={json.dumps(data)}&jKey={session_token}'
+            print(f"Payload for get_time_price_data: {payload}")
+
+            # Make request to FlatTrade API
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.base_url}/TPSeries",
+                    json=payload,
+                    timeout=30.0
+                )
+                
+                # if response.status_code != 200:
+                #     logger.error(f"Error fetching time price data: {response.text}")
+                #     raise HTTPException(
+                #         status_code=response.status_code,
+                #         detail="Failed to fetch market data from broker"
+                #     )
+                    
+                data = response.json()
+                print(f"Response data for get_time_price_data: {data} and its type is {type(data)}")
+                # Check for API errors
+                if isinstance(data, dict) and data.get("stat") == "Not_Ok":
+                    error_msg = data.get("emsg", "Unknown error from broker API")
+                    logger.error(f"Broker API error: {error_msg}")
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Broker API error: {error_msg}"
+                    )
+                    
+                # Transform data into the format needed by frontend
+                chart_data = []
+                for item in data:
+                    if isinstance(item, dict):
+                        try:
+                            chart_data.append({
+                                "time": item.get("time"),
+                                "open": float(item.get("into", 0)),
+                                "high": float(item.get("inth", 0)),
+                                "low": float(item.get("intl", 0)),
+                                "close": float(item.get("intc", 0)),
+                                "volume": float(item.get("intv", 0))
+                            })
+                        except (ValueError, TypeError) as e:
+                            logger.warning(f"Error processing candle data: {str(e)}")
+                            continue
+                
+                return chart_data
+                
+        except httpx.RequestError as e:
+            logger.error(f"HTTP Request failed: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to connect to broker API"
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error in get_time_price_data: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail="Internal server error while fetching market data"
+            )
+            
+            
     
-    def _mask_token(self, token: str) -> str:
-        """Mask token for logging purposes"""
-        if not token or len(token) < 8:
-            return "***"
-        return f"{token[:6]}...{token[-4:]}"
+    def _create_api_secret_hash(self, request_code: str) -> str:
+        """Create SHA-256 hash for API authentication"""
+        combined_str = f"{self.api_key}{request_code}{self.api_secret}"
+        return hashlib.sha256(combined_str.encode()).hexdigest()
+    
+    def _create_payload(self, data: Dict[str, Any], token: str) -> str:
+        """Create payload dict for Flattrade API"""
+       
+       # FIXED: Create payload as raw string matching API documentation
+        payload = f'jData={json.dumps(data)}&jKey={token}'
+        return payload
+    
     async def exchange_code_for_token(self, request_code: str) -> str:
         """Exchange request code for access token"""
         try:
@@ -96,252 +201,7 @@ class FlattradeClient:
                 status_code=500,
                 detail=f"Failed to exchange code for token: {str(e)}"
             )
-   
-    def _create_api_secret_hash(self, request_code: str) -> str:
-        """Create SHA-256 hash for API authentication"""
-        combined_str = f"{self.api_key}{request_code}{self.api_secret}"
-        return hashlib.sha256(combined_str.encode()).hexdigest()
-    
-    def _create_payload(self, data: Dict[str, Any], token: str) -> str:
-        """Create payload dict for Flattrade API"""
-       
-       # FIXED: Create payload as raw string matching API documentation
-        payload = f'jData={json.dumps(data)}&jKey={token}'
-        return payload
-   
-    def _validate_session_token(self, session_token: str) -> bool:
-        """Validate session token format"""
-        if not session_token:
-            return False
-        if len(session_token) < 32:  # FlatTrade tokens are typically longer
-            return False
-        if not session_token.replace('-', '').replace('_', '').isalnum():
-            return False
-        return True
-    
-    async def get_time_price_data(
-        self,
-        session_token: str,
-        symbol: str,
-        start_time: int,
-        end_time: int,
-        interval: str = "15"
-    ) -> List[Dict[str, Any]]:
-        """Get historical price data from FlatTrade with enhanced debugging"""
-        
-        # Validate session token
-        if not self._validate_session_token(session_token):
-            logger.error("Invalid session token format")
-            raise HTTPException(status_code=401, detail="Invalid session token format")
-        
-        # Log masked token for debugging
-        masked_token = self._mask_token(session_token)
-        logger.info(f"Fetching time price data for {symbol} with masked token: {masked_token}")
-        
-        try:
-            # First, get the actual token number for the symbol
-            token_number = await self.get_stock_token(session_token, symbol)
-            if not token_number:
-                logger.error(f"Could not resolve token for symbol: {symbol}")
-                raise HTTPException(status_code=400, detail=f"Invalid symbol: {symbol}")
-            
-            logger.info(f"Resolved symbol {symbol} to token number: {token_number}")
-            
-            # Prepare request data with token number (not symbol)
-            data = {
-                "uid": self.settings.DEFAULT_USER_ID,
-                "exch": "NSE", 
-                "token": str(token_number),  # Use token number, not symbol
-                "st": str(start_time),
-                "et": str(end_time),
-                "intrv": interval
-            }
-            
-            # Create payload in the exact format FlatTrade expects
-            payload = f'jData={json.dumps(data)}&jKey={session_token}'
-            
-            logger.info(f"TPSeries request data: {data}")
-            logger.info(f"Payload for get_time_price_data: jData={json.dumps(data)}&jKey={masked_token}")
-            
-            # Make request to FlatTrade API
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    f"{self.base_url}/TPSeries",
-                    headers={'Content-Type': 'application/x-www-form-urlencoded'},
-                    content=payload
-                )
-                
-                logger.info(f"TPSeries response status: {response.status_code}")
-                
-                if response.status_code != 200:
-                    logger.error(f"HTTP Error {response.status_code}: {response.text}")
-                    raise HTTPException(
-                        status_code=response.status_code,
-                        detail=f"Failed to fetch market data from broker: {response.text}"
-                    )
-                    
-                try:
-                    response_data = response.json()
-                except json.JSONDecodeError as e:
-                    logger.error(f"Invalid JSON response: {response.text}")
-                    raise HTTPException(
-                        status_code=500,
-                        detail="Invalid response format from broker API"
-                    )
-                
-                #logger.info(f"Response data for get_time_price_data: {response_data} and its type is {type(response_data)}")
-                
-                # Check for API errors
-                if isinstance(response_data, dict) and response_data.get("stat") == "Not_Ok":
-                    error_msg = response_data.get("emsg", "Unknown error from broker API")
-                    logger.error(f"Broker API error: {error_msg}")
-                    
-                    # Handle specific session errors
-                    if "session" in error_msg.lower() or "expired" in error_msg.lower() or "invalid" in error_msg.lower():
-                        raise HTTPException(
-                            status_code=401,
-                            detail=f"Session validation failed: {error_msg}"
-                        )
-                    else:
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"Broker API error: {error_msg}"
-                        )
-                
-                # Handle successful response
-                if isinstance(response_data, list) and len(response_data) > 0:
-                    # Transform data into the format needed by frontend
-                    chart_data = []
-                    for item in response_data:
-                        if isinstance(item, dict):
-                            try:
-                                chart_data.append({
-                                    "time": item.get("time"),
-                                    "open": float(item.get("into", 0)),
-                                    "high": float(item.get("inth", 0)),
-                                    "low": float(item.get("intl", 0)),
-                                    "close": float(item.get("intc", 0)),
-                                    "volume": float(item.get("intv", 0))
-                                })
-                            except (ValueError, TypeError) as e:
-                                logger.warning(f"Error processing candle data: {str(e)}")
-                                continue
-                    
-                    logger.info(f"Successfully processed {len(chart_data)} candles for {symbol}")
-                    chart_data = chart_data[::-1]  # Reverse to chronological order
-                    return chart_data  # Return in chronological order
-                else:
-                    logger.warning(f"Empty or invalid response data for {symbol}")
-                    return []
-                
-        except HTTPException:
-            raise
-        except httpx.RequestError as e:
-            logger.error(f"HTTP Request failed: {str(e)}")
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to connect to broker API"
-            )
-        except Exception as e:
-            logger.error(f"Unexpected error in get_time_price_data: {str(e)}")
-            raise HTTPException(
-                status_code=500,
-                detail="Internal server error while fetching market data"
-            )
-    
-    async def test_session_token(self, session_token: str) -> bool:
-        """Test if session token is valid by making a simple API call"""
-        try:
-            # Use UserDetails as a test call - it's lightweight
-            data = {"uid": self.settings.DEFAULT_USER_ID}
-            payload = f'jData={json.dumps(data)}&jKey={session_token}'
-            
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(
-                    f"{self.base_url}/UserDetails",
-                    headers={'Content-Type': 'application/x-www-form-urlencoded'},
-                    content=payload
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    if isinstance(data, dict) and data.get("stat") == "Ok":
-                        logger.info(f"Session token validation successful for user: {data.get('uname', 'Unknown')}")
-                        return True
-                    else:
-                        logger.error(f"Session token validation failed: {data}")
-                        return False
-                else:
-                    logger.error(f"Session token validation HTTP error: {response.status_code}")
-                    return False
-                    
-        except Exception as e:
-            logger.error(f"Error testing session token: {str(e)}")
-            return False
-    
-    async def get_stock_token(self, token: str, symbol: str) -> Optional[str]:
-        """Get stock token required for market data API calls with enhanced debugging"""
-        try:
-            symbol_base = symbol.replace("-EQ", "").replace("-BE", "").upper()
-            method_name = inspect.currentframe().f_code.co_name # type: ignore
-            
-            # Test session token first
-            is_valid = await self.test_session_token(token)
-            if not is_valid:
-                logger.error(f"Session token validation failed for symbol lookup: {symbol}")
-                return None
-            
-            scrip_data = {
-                "uid": self.settings.DEFAULT_USER_ID,
-                "stext": symbol_base,
-                "exch": "NSE"
-            }
-            
-            logger.info(f"market_data for get_stock_token: {scrip_data}")
-            
-            payload = f'jData={json.dumps(scrip_data)}&jKey={token}'
-            
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                scrip_response = await client.post(
-                    f"{self.base_url}/SearchScrip",
-                    headers={'Content-Type': 'application/x-www-form-urlencoded'},
-                    content=payload
-                )
-                
-                if scrip_response.status_code != 200:
-                    logger.error(f"SearchScrip HTTP error {scrip_response.status_code}: {scrip_response.text}")
-                    return None
-                
-                scrip_info = scrip_response.json()
-                logger.info(f"SearchScrip response: {scrip_info}")
-                
-                if scrip_info.get("stat") != "Ok" or not scrip_info.get("values"):
-                    logger.error(f"Failed to get scrip info for {symbol}: {scrip_info}")
-                    return None
-                
-                # Find the exact symbol match, trying different variations
-                variations = [
-                    f"{symbol_base}-EQ",
-                    symbol_base,
-                    f"{symbol_base}-BE"
-                ]
-                
-                for item in scrip_info["values"]:
-                    item_symbol = item.get("tsym", "")
-                    if item_symbol in variations:
-                        token_result = item.get("token")
-                        logger.info(f"Found token {token_result} for symbol {item_symbol}")
-                        return str(token_result)
-               
-                logger.error(f"[{method_name}] Could not find token number for {symbol}")
-                return None
-                
-        except Exception as e:
-            logger.error(f"[get_stock_token] Failed to get stock token for {symbol}: {str(e)}")
-            return None
-    
-    # Add the rest of your existing methods here with similar debugging enhancements...
-    # [Include your existing methods: get_live_price, get_quote, etc.]
+
     async def place_order(self, token: str, order_data: Dict[str, Any]) -> Dict[str, Any]:
         """Place a new order"""
         try:
@@ -420,7 +280,7 @@ class FlattradeClient:
         except Exception as e:
             logger.error(f"Token exchange error: {str(e)}")
             raise HTTPException(status_code=502, detail=f"Token exchange error: {str(e)}")
-        
+    
     async def make_api_call(
         self, 
         endpoint: str, 
@@ -479,6 +339,7 @@ class FlattradeClient:
         except Exception as e:
             logger.error(f"API call failed for {endpoint}: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
+    
     async def get_holdings(self, token: str, user_id: Optional[str] = None) -> Dict[str, Any]:
         """Get portfolio holdings"""
         try:
@@ -588,6 +449,7 @@ class FlattradeClient:
                 "data": [],
                 "error": str(e)
             }
+    
     async def get_order_book(self, token: str, user_id: Optional[str] = None) -> Dict[str, Any]:
         """Get order book"""
         data = {"uid": user_id or self.settings.DEFAULT_USER_ID}
@@ -600,6 +462,7 @@ class FlattradeClient:
             "actid": user_id or self.settings.DEFAULT_USER_ID
         }
         return await self.make_api_call("/TradeBook", token, data)
+    
     async def get_user_details(self, token: str, user_id: Optional[str] = None) -> Dict[str, Any]:
         """Get user account details"""
         data = {"uid": user_id or self.settings.DEFAULT_USER_ID}
@@ -629,6 +492,59 @@ class FlattradeClient:
             }
         
         return {"success": False, "account": None, "error": "Failed to fetch user details"}
+        
+    async def get_stock_token(self, token: str, symbol: str) -> Optional[str]:
+        """Get stock token required for market data API calls
+        
+        Args:
+            token (str): Session token for authentication
+            symbol (str): Stock symbol (with or without -EQ/-BE suffix)
+            
+        Returns:
+            Optional[str]: Stock token if found, None otherwise
+        """
+        try:
+            symbol_base = symbol.replace("-EQ", "").replace("-BE", "").upper()
+            method_name = inspect.currentframe().f_code.co_name # type: ignore
+            #
+            scrip_data = {
+                "uid": self.settings.DEFAULT_USER_ID,
+                "stext": symbol_base,
+                "exch": "NSE"
+            }
+            
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                scrip_response = await client.post(
+                    f"{self.base_url}/SearchScrip",
+                    headers={'Content-Type': 'application/x-www-form-urlencoded'},
+                    content=self._create_payload(scrip_data, token)
+                )
+                scrip_response.raise_for_status()
+                scrip_info = scrip_response.json()
+                
+                if scrip_info.get("stat") != "Ok" or not scrip_info.get("values"):
+                    logger.error(f"Failed to get scrip info for {symbol}")
+                    return None
+                
+                #print(f"scrip_info: {scrip_info} and symbol_base: {symbol_base}")
+                # Find the exact symbol match, trying different variations
+                variations = [
+                    f"{symbol_base}-EQ",
+                    symbol_base,
+                    f"{symbol_base}-BL"
+                ]
+                
+                for item in scrip_info["values"]:
+                    if item.get("tsym") in variations:
+                        return item.get("token")
+               
+                logger.error(f"[{method_name}]Could not find token number for {symbol},")
+                return None
+                
+        except Exception as e:
+            logger.error(f"[{method_name}]Failed to get stock token for {symbol}: {str(e)}")
+            return None
+
     async def get_live_price(self, token: str, symbol: str) -> Optional[float]:
         """Get real-time last traded price (LTP) for a symbol
         
@@ -667,7 +583,7 @@ class FlattradeClient:
         except Exception as e:
             logger.error(f"Failed to get live price for {symbol}: {str(e)}")
             return None
-        
+            
     async def get_market_data(self, token: str, symbol: str) -> Optional[Dict[str, Any]]:
         """Get real-time market data for a symbol"""
         try:
@@ -680,7 +596,7 @@ class FlattradeClient:
             # Now get the market data using the token number
             market_data = {
                 "uid": self.settings.DEFAULT_USER_ID,
-                "stext": symbol_base,
+                "stext": token_number,
                 "exch": "NSE"
             }
             print(f"market_data for get_market_data: {market_data}")
@@ -708,52 +624,52 @@ class FlattradeClient:
                 ]
                 
                 for item in scrip_info["values"]:
-                    if item.get("tsym") in variations:
+                    if item.get("symbol") in variations:
                         token_number = item.get("token")
                         break
                 
                 if not token_number:
-                    method_name = inspect.currentframe().f_code.co_name  # type: ignore
+                    method_name = inspect.currentframe().f_code.co_name # type: ignore
                     logger.error(f"[{method_name}]Could not find token number for {symbol},")
                     return None
                 
                 # Now get the market data using the token number
-                quotes_market_data = {
+                market_data = {
                     "uid": self.settings.DEFAULT_USER_ID,
                     "exch": "NSE",
-                    "token": token_number
+                    "stext": token_number
                 }
                 
-                print(f"quotes_market_data for get_market_data: {quotes_market_data}")  
                 response = await client.post(
                     f"{self.base_url}/GetQuotes",
                     headers={'Content-Type': 'application/x-www-form-urlencoded'},
-                    content=self._create_payload(quotes_market_data, token)
+                    content=self._create_payload(market_data, token)
                 )
-               
                 response.raise_for_status()
                 response_data = response.json()
                 
-                print(f"response for quotes_market_data: {response_data} and stsat: {response_data.get('stat')}")
                 if response_data.get("stat") == "Ok":
-                     return {
+                    quote = response_data.get("data", {})
+                    if quote:
+                        return {
                             "symbol": symbol.replace("-EQ", ""),
                             "token": token_number,
-                            "ltp": float(response_data.get("lp", 0)),
-                            "ltq": int(response_data.get("ltq", 0)),
-                            "ltt": response_data.get("ltt"),
-                            "open": float(response_data.get("o", 0)),
-                            "high": float(response_data.get("h", 0)),
-                            "low": float(response_data.get("l", 0)),
-                            "close": float(response_data.get("c", 0)),
-                            "volume": int(response_data.get("v", 0)),
-                            "average_price": float(response_data.get("ap", 0))
+                            "ltp": float(quote.get("lp", 0)),
+                            "ltq": int(quote.get("ltq", 0)),
+                            "ltt": quote.get("ltt"),
+                            "open": float(quote.get("o", 0)),
+                            "high": float(quote.get("h", 0)),
+                            "low": float(quote.get("l", 0)),
+                            "close": float(quote.get("c", 0)),
+                            "volume": int(quote.get("v", 0)),
+                            "average_price": float(quote.get("ap", 0))
                         }
                 return None
                 
         except Exception as e:
             logger.error(f"Failed to get market data for {symbol}: {str(e)}")
             return None
+
     async def get_quote(self, token: str, symbol: str) -> Dict[str, Any]:
         """Get real-time market quote for a symbol"""
         try:
@@ -789,7 +705,7 @@ class FlattradeClient:
                 "error": str(e),
                 "data": None
             }
-        
+            
     async def search_symbols(self, token: str, query: str) -> List[Dict[str, Any]]:
         """Search for tradeable symbols in NSE
         
