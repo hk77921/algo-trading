@@ -1,6 +1,8 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Activity, TrendingUp, TrendingDown, Volume2, Maximize2, Minimize2, Download, RefreshCw } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart } from 'recharts';
+import WS_BASE_URL from '../config';
+
 
 const AdvancedTradingChart = ({ symbol = "TCS-EQ", sessionToken, debug = false }) => {
   const wsRef = useRef(null);
@@ -204,7 +206,9 @@ const AdvancedTradingChart = ({ symbol = "TCS-EQ", sessionToken, debug = false }
   const connectWebSocket = useCallback(() => {
     if (!sessionToken || wsRef.current) return;
 
-    const wsUrl = `ws://localhost:8000/api/market/ws/${symbol}?token=${sessionToken}&exchange=NSE&feed_type=t`;
+    //const wsUrl = `ws://localhost:8000/api/market/ws/${symbol}?token=${sessionToken}&exchange=NSE&feed_type=t`;
+    const wsUrl = `${WS_BASE_URL}/api/market/ws/${symbol}?token=${sessionToken}&exchange=NSE&feed_type=t`;
+    console.log('Connecting to WebSocket:', wsUrl);
     
     try {
       const ws = new WebSocket(wsUrl);
