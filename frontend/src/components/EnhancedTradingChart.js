@@ -25,13 +25,14 @@ import {
   calculateCCI
 } from '../utils/indicators';
 import IndicatorPanel from './IndicatorPanel';
+import { WS_BASE_URL } from '../config';
 
 const DEFAULT_HEIGHT = 400;
 const INDICATOR_PANE_HEIGHT = 150;
 
 function buildWsUrl(symbol, token, base = '') {
   const q = new URLSearchParams({ token });
-  return `${base || 'ws://localhost:8000'}/api/market/ws/${encodeURIComponent(symbol)}?${q.toString()}`;
+  return `${base || WS_BASE_URL}/api/market/ws/${encodeURIComponent(symbol)}?${q.toString()}`;
 }
 
 const EnhancedTradingChart = ({ symbol = 'TCS-EQ', sessionToken = '', debug = false }) => {
