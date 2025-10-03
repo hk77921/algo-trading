@@ -1,5 +1,5 @@
 // API Configuration
-export const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8000';
+export const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://trd-integration.centralus.cloudapp.azure.com:8000';
 
 // WebSocket Configuration
 export const WS_BASE_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:8000';
