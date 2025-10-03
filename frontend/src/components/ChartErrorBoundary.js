@@ -1,13 +1,14 @@
 // ChartErrorBoundary.js - Error boundary for chart components
 import React from 'react';
-import TradingChart from './TradingChart';
+
 class ChartErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
     this.state = { 
       hasError: false, 
       error: null, 
-      errorInfo: null 
+      errorInfo: null,
+      retryCount: 0
     };
   }
 
@@ -17,54 +18,67 @@ class ChartErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    // Log error details
-    console.error('Chart Error Boundary caught an error:', error);
-    console.error('Error Info:', errorInfo);
-    
+    // Store error details
     this.setState({
       error: error,
       errorInfo: errorInfo
     });
+
+    // Log error for debugging
+    console.error('Chart Error Boundary caught an error:', error, errorInfo);
   }
+
+  handleRetry = () => {
+    this.setState(prevState => ({
+      hasError: false,
+      error: null,
+      errorInfo: null,
+      retryCount: prevState.retryCount + 1
+    }));
+  };
 
   render() {
     if (this.state.hasError) {
       return (
-        <div className="w-full h-[400px] border border-red-200 rounded-lg bg-red-50 flex items-center justify-center">
-          <div className="text-center p-6">
-            <div className="text-red-500 text-6xl mb-4">⚠️</div>
+        <div className="w-full h-[400px] border-2 border-red-300 rounded-lg bg-red-50 flex items-center justify-center">
+          <div className="text-center p-6 max-w-md">
+            <div className="text-red-600 text-4xl mb-4">⚠️</div>
             <h3 className="text-lg font-semibold text-red-800 mb-2">
               Chart Error
             </h3>
             <p className="text-red-700 mb-4">
-              Something went wrong while loading the chart.
+              The trading chart encountered an error and couldn't render properly.
             </p>
-            <button
-              onClick={() => {
-                this.setState({ hasError: false, error: null, errorInfo: null });
-                // Optionally trigger a re-render of the parent component
-                window.location.reload();
-              }}
-              className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
-            >
-              Reload Page
-            </button>
             
-            {/* Development mode: show error details */}
-            {process.env.NODE_ENV === 'development' && (
-              <details className="mt-4 text-left">
-                <summary className="cursor-pointer text-red-600 font-medium">
-                  Error Details (Development Only)
+            <div className="space-y-3">
+              <button
+                onClick={this.handleRetry}
+                className="w-full px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+              >
+                Retry Chart ({this.state.retryCount} attempts)
+              </button>
+              
+              <details className="text-left">
+                <summary className="text-sm text-red-600 cursor-pointer hover:text-red-800">
+                  Show Error Details
                 </summary>
-                <div className="mt-2 p-3 bg-gray-100 rounded text-sm text-gray-800 max-h-48 overflow-auto">
-                  <p><strong>Error:</strong> {this.state.error && this.state.error.toString()}</p>
-                  <p><strong>Stack Trace:</strong></p>
-                  <pre className="whitespace-pre-wrap">
-                    {this.state.errorInfo.componentStack}
+                <div className="mt-2 p-3 bg-white border border-red-200 rounded text-xs">
+                  <div className="font-medium mb-2">Error:</div>
+                  <div className="text-red-800 mb-3">
+                    {this.state.error && this.state.error.toString()}
+                  </div>
+                  
+                  <div className="font-medium mb-2">Stack Trace:</div>
+                  <pre className="text-gray-600 overflow-auto max-h-32">
+                    {this.state.errorInfo && this.state.errorInfo.componentStack}
                   </pre>
                 </div>
               </details>
-            )}
+              
+              <div className="text-xs text-gray-600">
+                Try refreshing the page if the error persists
+              </div>
+            </div>
           </div>
         </div>
       );
@@ -74,14 +88,4 @@ class ChartErrorBoundary extends React.Component {
   }
 }
 
-// Enhanced Trading component with error boundary
-const TradingWithErrorBoundary = ({ symbol, sessionToken }) => {
-  return (
-    <ChartErrorBoundary>
-      <TradingChart symbol={symbol} sessionToken={sessionToken} />
-    </ChartErrorBoundary>
-  );
-};
-
 export default ChartErrorBoundary;
-export { TradingWithErrorBoundary };

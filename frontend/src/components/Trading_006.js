@@ -1,21 +1,19 @@
-// src/components/Trading.js - Updated with technical indicators
+// Trading.js - Updated with proper chart integration
 import React, { useEffect, useState } from "react";
 import { useAuth } from '../context/AuthContext';
 import { Navigate } from 'react-router-dom';
-import { 
-  ShoppingCart, 
-  TrendingUp, 
-  TrendingDown, 
-  Search, 
-  DollarSign, 
-  RefreshCw, 
-  AlertCircle,
-  BarChart3,
-  Lightbulb
-} from 'lucide-react';
+import { ShoppingCart, TrendingUp, TrendingDown, Search, DollarSign, RefreshCw, AlertCircle } from 'lucide-react';
 import axios from 'axios';
-import EnhancedTradingChart from './EnhancedTradingChart';
-import PresetStrategies from './PresetStrategies';
+import WebSocketDebugger from './WebSocketDebugger';
+import ChartErrorBoundary from './ChartErrorBoundary';
+// import ContainerMountTest from './ContainerMountTest';
+// import SimpleTradingChart from './SimpleTradingChart';
+// import FixedTradingChart from './FixedTradingChart';
+// import RefTestComponent from './RefTestComponent';
+//import TradingChart from './TradingChart';
+//import BulletproofChart from './BulletproofChart';
+import AdvancedTradingChart from './advancedTradingChart'
+import AdvancedChart from "./AdvancedChart";
 
 const Trading = () => {
   const { isAuthenticated, sessionToken } = useAuth();
@@ -37,8 +35,8 @@ const Trading = () => {
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [showSearchResults, setShowSearchResults] = useState(false);
-  const [showStrategies, setShowStrategies] = useState(false);
-  const [activeView, setActiveView] = useState('chart'); // 'chart' or 'strategies'
+  const [showDebugger, setShowDebugger] = useState(false);
+
 
   // Load default market data on mount
   useEffect(() => {
@@ -71,7 +69,7 @@ const Trading = () => {
       const errorMsg = error.response?.data?.detail || 'Failed to fetch market data';
       setError(errorMsg);
 
-      // Fallback to mock data
+      // Fallback to mock data for demo purposes
       setMarketData({
         symbol: symbol.replace('-EQ', ''),
         last_price: 2500.0,
@@ -114,10 +112,12 @@ const Trading = () => {
           price: ''
         });
 
+        // Refresh market data
         if (orderForm.symbol) {
           fetchMarketData(orderForm.symbol);
         }
 
+        // Clear success message after 5 seconds
         setTimeout(() => setOrderSuccess(false), 5000);
       } else {
         setError(response.data.message || 'Order placement failed');
@@ -156,6 +156,7 @@ const Trading = () => {
     const value = e.target.value;
     setSearchSymbol(value);
 
+    // Debounce search
     clearTimeout(handleSearchChange.timeout);
     handleSearchChange.timeout = setTimeout(() => {
       searchSymbols(value);
@@ -181,14 +182,6 @@ const Trading = () => {
     setOrderForm({ ...orderForm, symbol: symbol });
   };
 
-  const handleApplyStrategy = (strategy) => {
-    console.log('Applying strategy:', strategy);
-    // This will be handled by the EnhancedTradingChart component
-    // The strategy indicators will be automatically added
-    setShowStrategies(false);
-    setActiveView('chart');
-  };
-
   if (!isAuthenticated()) {
     return <Navigate to="/login" />;
   }
@@ -196,36 +189,8 @@ const Trading = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Advanced Trading Dashboard</h1>
-        <p className="text-gray-600 mt-2">
-          Place orders, analyze with technical indicators, and monitor real-time market data
-        </p>
-      </div>
-
-      {/* View Toggle */}
-      <div className="flex gap-2">
-        <button
-          onClick={() => setActiveView('chart')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
-            activeView === 'chart'
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-          }`}
-        >
-          <BarChart3 className="h-4 w-4" />
-          Chart & Indicators
-        </button>
-        <button
-          onClick={() => setActiveView('strategies')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
-            activeView === 'strategies'
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-          }`}
-        >
-          <Lightbulb className="h-4 w-4" />
-          Preset Strategies
-        </button>
+        <h1 className="text-3xl font-bold text-gray-900">Trading Dashboard</h1>
+        <p className="text-gray-600 mt-2">Place orders and monitor real-time market data</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -337,11 +302,10 @@ const Trading = () => {
             <button
               type="submit"
               disabled={loading}
-              className={`w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${
-                orderForm.side === 'BUY'
-                  ? 'bg-green-600 hover:bg-green-700 focus:ring-green-500'
-                  : 'bg-red-600 hover:bg-red-700 focus:ring-red-500'
-              }`}
+              className={`w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${orderForm.side === 'BUY'
+                ? 'bg-green-600 hover:bg-green-700 focus:ring-green-500'
+                : 'bg-red-600 hover:bg-red-700 focus:ring-red-500'
+                }`}
             >
               {loading ? 'Placing Order...' : `${orderForm.side} ${orderForm.symbol || 'STOCK'}`}
             </button>
@@ -409,46 +373,34 @@ const Trading = () => {
             <div className="space-y-4">
               <div className="text-center">
                 <h4 className="text-2xl font-bold text-gray-900">{marketData.symbol}</h4>
-                <p className="text-3xl font-bold text-gray-900">
-                  ₹{marketData.last_price?.toLocaleString('en-IN') || 'N/A'}
-                </p>
-                <div className={`flex items-center justify-center text-lg font-medium ${
-                  (marketData.change || 0) >= 0 ? 'text-green-600' : 'text-red-600'
-                }`}>
+                <p className="text-3xl font-bold text-gray-900">₹{marketData.last_price?.toLocaleString('en-IN') || 'N/A'}</p>
+                <div className={`flex items-center justify-center text-lg font-medium ${(marketData.change || 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                  }`}>
                   {(marketData.change || 0) >= 0 ? (
                     <TrendingUp className="h-5 w-5 mr-1" />
                   ) : (
                     <TrendingDown className="h-5 w-5 mr-1" />
                   )}
-                  {(marketData.change || 0) >= 0 ? '+' : ''}
-                  {(marketData.change || 0).toFixed(2)} ({(marketData.change_percent || 0).toFixed(2)}%)
+                  {(marketData.change || 0) >= 0 ? '+' : ''}{(marketData.change || 0).toFixed(2)} ({(marketData.change_percent || 0).toFixed(2)}%)
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-gray-50 p-3 rounded-lg">
                   <p className="text-sm text-gray-600">Open</p>
-                  <p className="text-lg font-semibold text-gray-900">
-                    ₹{(marketData.open || 0).toLocaleString('en-IN')}
-                  </p>
+                  <p className="text-lg font-semibold text-gray-900">₹{(marketData.open || 0).toLocaleString('en-IN')}</p>
                 </div>
                 <div className="bg-gray-50 p-3 rounded-lg">
                   <p className="text-sm text-gray-600">High</p>
-                  <p className="text-lg font-semibold text-gray-900">
-                    ₹{(marketData.high || 0).toLocaleString('en-IN')}
-                  </p>
+                  <p className="text-lg font-semibold text-gray-900">₹{(marketData.high || 0).toLocaleString('en-IN')}</p>
                 </div>
                 <div className="bg-gray-50 p-3 rounded-lg">
                   <p className="text-sm text-gray-600">Low</p>
-                  <p className="text-lg font-semibold text-gray-900">
-                    ₹{(marketData.low || 0).toLocaleString('en-IN')}
-                  </p>
+                  <p className="text-lg font-semibold text-gray-900">₹{(marketData.low || 0).toLocaleString('en-IN')}</p>
                 </div>
                 <div className="bg-gray-50 p-3 rounded-lg">
                   <p className="text-sm text-gray-600">Volume</p>
-                  <p className="text-lg font-semibold text-gray-900">
-                    {(marketData.volume || 0).toLocaleString('en-IN')}
-                  </p>
+                  <p className="text-lg font-semibold text-gray-900">{(marketData.volume || 0).toLocaleString('en-IN')}</p>
                 </div>
               </div>
             </div>
@@ -461,79 +413,89 @@ const Trading = () => {
         </div>
       </div>
 
-      {/* Main Content Area - Charts or Strategies */}
-      {activeView === 'chart' ? (
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 flex items-center">
-              <TrendingUp className="h-5 w-5 mr-2" />
-              Advanced Chart with Technical Indicators
-            </h3>
+      {/* Trading Chart with WebSocket Integration */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+            <TrendingUp className="h-5 w-5 mr-2" />
+            Real-time Price Chart ({selectedSymbol})
+          </h3>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowDebugger(!showDebugger)}
+              className="px-3 py-1 text-sm bg-purple-100 text-purple-700 rounded hover:bg-purple-200"
+            >
+              {showDebugger ? 'Hide Debugger' : 'Show Debugger'}
+            </button>
           </div>
+        </div>
 
-          {sessionToken ? (
-            <EnhancedTradingChart
+        <AdvancedTradingChart symbol={selectedSymbol}
+          sessionToken={sessionToken}
+          debug="true" />
+
+        {/* <SimpleTradingChart 
+  symbol={selectedSymbol} 
+  sessionToken={sessionToken} 
+/> */}
+
+        {/* <RefTestComponent /> */}
+
+
+        <AdvancedChart
+          symbol={selectedSymbol}
+          sessionToken={sessionToken}
+          debug="true"
+        />
+
+        {/* <FixedTradingChart 
+  symbol={selectedSymbol} 
+  sessionToken={sessionToken}
+  debug={true}
+/> */}
+
+
+
+        {/* Add this component before your TradingChart */}
+        {/* <ContainerMountTest /> */}
+        {sessionToken ? (
+          <ChartErrorBoundary>
+            {/* <TradingChart 
+              symbol={selectedSymbol} 
+              sessionToken={sessionToken}
+              debug={showDebugger}
+            />  */}
+          </ChartErrorBoundary>
+        ) : (
+          <div className="text-center py-8 text-gray-500">
+            Please login to view real-time charts
+          </div>
+        )}
+
+        {/* WebSocket Debugger */}
+        {showDebugger && sessionToken && (
+          <div className="mt-6">
+            <WebSocketDebugger
               symbol={selectedSymbol}
               sessionToken={sessionToken}
-              debug="true"
             />
-          ) : (
-            <div className="text-center py-8 text-gray-500">
-              Please login to view real-time charts
-            </div>
-          )}
-        </div>
-      ) : (
-        <PresetStrategies onApplyStrategy={handleApplyStrategy} />
-      )}
+          </div>
+        )}
+      </div>
 
       {/* Quick Actions */}
       <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Symbol Access</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-          {['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK', 'SBIN', 'WIPRO', 'ITC'].map((symbol) => (
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {['RELIANCE', 'TCS', 'INFY', 'HDFC'].map((symbol) => (
             <button
               key={symbol}
               onClick={() => quickSymbolSelect(symbol)}
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
             >
-              {symbol}
+              View {symbol}
             </button>
           ))}
-        </div>
-      </div>
-
-      {/* Indicator Info Panel */}
-      <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center">
-          <Lightbulb className="h-5 w-5 mr-2 text-yellow-500" />
-          Technical Indicators Guide
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-          <div className="bg-white p-4 rounded-lg">
-            <h4 className="font-semibold text-blue-600 mb-2">Trend Indicators</h4>
-            <ul className="space-y-1 text-gray-600">
-              <li>• SMA/EMA - Identify trend direction</li>
-              <li>• Parabolic SAR - Stop and reverse points</li>
-              <li>• Ichimoku - Comprehensive trend analysis</li>
-            </ul>
-          </div>
-          <div className="bg-white p-4 rounded-lg">
-            <h4 className="font-semibold text-purple-600 mb-2">Momentum Indicators</h4>
-            <ul className="space-y-1 text-gray-600">
-              <li>• RSI - Overbought/oversold levels</li>
-              <li>• MACD - Trend momentum changes</li>
-              <li>• Stochastic - Price momentum</li>
-            </ul>
-          </div>
-          <div className="bg-white p-4 rounded-lg">
-            <h4 className="font-semibold text-green-600 mb-2">Volatility Indicators</h4>
-            <ul className="space-y-1 text-gray-600">
-              <li>• Bollinger Bands - Price volatility</li>
-              <li>• ATR - Average True Range</li>
-              <li>• CCI - Commodity Channel Index</li>
-            </ul>
-          </div>
         </div>
       </div>
     </div>

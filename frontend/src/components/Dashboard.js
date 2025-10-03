@@ -36,7 +36,7 @@ const Dashboard = () => {
       // Fetch real market data for popular stocks
       const popularStocks = ['RELIANCE', 'TCS', 'INFY', 'HDFC', 'ICICIBANK'];
       const marketDataPromises = popularStocks.map(symbol => 
-        axios.get(`/api/market/quote/${symbol}`)
+        axios.get(`/api/market/SearchScrip/${symbol}`)
       );
       
       const marketResponses = await Promise.all(marketDataPromises);

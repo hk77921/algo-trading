@@ -1,25 +1,21 @@
-// src/components/Trading.js - Updated with technical indicators
-import React, { useEffect, useState } from "react";
+// Trading.js - Fixed WebSocket Integration
+import React, { useRef, useEffect, useState } from "react";
 import { useAuth } from '../context/AuthContext';
 import { Navigate } from 'react-router-dom';
-import { 
-  ShoppingCart, 
-  TrendingUp, 
-  TrendingDown, 
-  Search, 
-  DollarSign, 
-  RefreshCw, 
-  AlertCircle,
-  BarChart3,
-  Lightbulb
-} from 'lucide-react';
+import { ShoppingCart, TrendingUp, TrendingDown, Search, DollarSign, RefreshCw, AlertCircle } from 'lucide-react';
 import axios from 'axios';
-import EnhancedTradingChart from './EnhancedTradingChart';
-import PresetStrategies from './PresetStrategies';
+ //import { TradingChartWithDebug } from './DataInspector';
+// import ChartErrorBoundary from './ChartErrorBoundary';
+ import WebSocketDebugger from "./WebSocketDebugger";
+import TradingChart from "./TradingChart";
+import ChartDataDebugger from './ChartDataDebugger';
 
 const Trading = () => {
   const { isAuthenticated, sessionToken } = useAuth();
-
+  
+  console.log('sessionToken-->', sessionToken);
+  console.log('isAuthenticated -->', isAuthenticated());
+  
   const [orderForm, setOrderForm] = useState({
     symbol: '',
     quantity: '',
@@ -27,7 +23,7 @@ const Trading = () => {
     order_type: 'MARKET',
     price: ''
   });
-
+  
   const [selectedSymbol, setSelectedSymbol] = useState('TCS-EQ');
   const [marketData, setMarketData] = useState(null);
   const [searchSymbol, setSearchSymbol] = useState('');
@@ -37,12 +33,12 @@ const Trading = () => {
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [showSearchResults, setShowSearchResults] = useState(false);
-  const [showStrategies, setShowStrategies] = useState(false);
-  const [activeView, setActiveView] = useState('chart'); // 'chart' or 'strategies'
 
+
+  
   // Load default market data on mount
   useEffect(() => {
-    if (sessionToken) {
+    if ( sessionToken) {
       fetchMarketData(selectedSymbol);
     }
   }, [isAuthenticated, sessionToken, selectedSymbol]);
@@ -56,11 +52,14 @@ const Trading = () => {
 
   const fetchMarketData = async (symbol) => {
     try {
+       console.log('Market data symbol  from trading component:',  symbol);
       setRefreshing(true);
       setError('');
-
+      
       const response = await axios.get(`/api/market/${symbol}`);
-
+      console.log('Market data response from trading component:', response.data);
+     
+      
       if (response.data.success) {
         setMarketData(response.data.market_data);
       } else {
@@ -70,8 +69,8 @@ const Trading = () => {
       console.error('Error fetching market data:', error);
       const errorMsg = error.response?.data?.detail || 'Failed to fetch market data';
       setError(errorMsg);
-
-      // Fallback to mock data
+      
+      // Fallback to mock data for demo purposes
       setMarketData({
         symbol: symbol.replace('-EQ', ''),
         last_price: 2500.0,
@@ -103,7 +102,7 @@ const Trading = () => {
       };
 
       const response = await axios.post('/api/orders', orderData);
-
+      
       if (response.data.success) {
         setOrderSuccess(true);
         setOrderForm({
@@ -113,11 +112,13 @@ const Trading = () => {
           order_type: 'MARKET',
           price: ''
         });
-
+        
+        // Refresh market data
         if (orderForm.symbol) {
           fetchMarketData(orderForm.symbol);
         }
-
+        
+        // Clear success message after 5 seconds
         setTimeout(() => setOrderSuccess(false), 5000);
       } else {
         setError(response.data.message || 'Order placement failed');
@@ -141,7 +142,7 @@ const Trading = () => {
       const response = await axios.get('/api/market/search', {
         params: { q: query }
       });
-
+      
       if (response.data.success) {
         setSearchResults(response.data.symbols);
         setShowSearchResults(true);
@@ -155,7 +156,8 @@ const Trading = () => {
   const handleSearchChange = (e) => {
     const value = e.target.value;
     setSearchSymbol(value);
-
+    
+    // Debounce search
     clearTimeout(handleSearchChange.timeout);
     handleSearchChange.timeout = setTimeout(() => {
       searchSymbols(value);
@@ -181,51 +183,15 @@ const Trading = () => {
     setOrderForm({ ...orderForm, symbol: symbol });
   };
 
-  const handleApplyStrategy = (strategy) => {
-    console.log('Applying strategy:', strategy);
-    // This will be handled by the EnhancedTradingChart component
-    // The strategy indicators will be automatically added
-    setShowStrategies(false);
-    setActiveView('chart');
-  };
-
-  if (!isAuthenticated()) {
+  if (!isAuthenticated) {
     return <Navigate to="/login" />;
   }
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Advanced Trading Dashboard</h1>
-        <p className="text-gray-600 mt-2">
-          Place orders, analyze with technical indicators, and monitor real-time market data
-        </p>
-      </div>
-
-      {/* View Toggle */}
-      <div className="flex gap-2">
-        <button
-          onClick={() => setActiveView('chart')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
-            activeView === 'chart'
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-          }`}
-        >
-          <BarChart3 className="h-4 w-4" />
-          Chart & Indicators
-        </button>
-        <button
-          onClick={() => setActiveView('strategies')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
-            activeView === 'strategies'
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-          }`}
-        >
-          <Lightbulb className="h-4 w-4" />
-          Preset Strategies
-        </button>
+        <h1 className="text-3xl font-bold text-gray-900">Trading Dashboard</h1>
+        <p className="text-gray-600 mt-2">Place orders and monitor real-time market data</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -245,7 +211,7 @@ const Trading = () => {
                 type="text"
                 name="symbol"
                 value={orderForm.symbol}
-                onChange={(e) => setOrderForm({ ...orderForm, symbol: e.target.value.toUpperCase() })}
+                onChange={(e) => setOrderForm({...orderForm, symbol: e.target.value.toUpperCase()})}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="e.g., RELIANCE, TCS, INFY"
                 required
@@ -260,7 +226,7 @@ const Trading = () => {
                 <select
                   name="side"
                   value={orderForm.side}
-                  onChange={(e) => setOrderForm({ ...orderForm, side: e.target.value })}
+                  onChange={(e) => setOrderForm({...orderForm, side: e.target.value})}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="BUY">BUY</option>
@@ -275,7 +241,7 @@ const Trading = () => {
                 <select
                   name="order_type"
                   value={orderForm.order_type}
-                  onChange={(e) => setOrderForm({ ...orderForm, order_type: e.target.value })}
+                  onChange={(e) => setOrderForm({...orderForm, order_type: e.target.value})}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="MARKET">MARKET</option>
@@ -293,7 +259,7 @@ const Trading = () => {
                   type="number"
                   name="quantity"
                   value={orderForm.quantity}
-                  onChange={(e) => setOrderForm({ ...orderForm, quantity: e.target.value })}
+                  onChange={(e) => setOrderForm({...orderForm, quantity: e.target.value})}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="100"
                   min="1"
@@ -310,7 +276,7 @@ const Trading = () => {
                     type="number"
                     name="price"
                     value={orderForm.price}
-                    onChange={(e) => setOrderForm({ ...orderForm, price: e.target.value })}
+                    onChange={(e) => setOrderForm({...orderForm, price: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="0.00"
                     step="0.01"
@@ -330,7 +296,7 @@ const Trading = () => {
 
             {orderSuccess && (
               <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-md">
-                ✅ Order placed successfully!
+                ✓ Order placed successfully!
               </div>
             )}
 
@@ -338,8 +304,8 @@ const Trading = () => {
               type="submit"
               disabled={loading}
               className={`w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${
-                orderForm.side === 'BUY'
-                  ? 'bg-green-600 hover:bg-green-700 focus:ring-green-500'
+                orderForm.side === 'BUY' 
+                  ? 'bg-green-600 hover:bg-green-700 focus:ring-green-500' 
                   : 'bg-red-600 hover:bg-red-700 focus:ring-red-500'
               }`}
             >
@@ -364,7 +330,7 @@ const Trading = () => {
               <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
             </button>
           </div>
-
+          
           {/* Search */}
           <div className="mb-4 relative">
             <div className="flex">
@@ -384,7 +350,7 @@ const Trading = () => {
                 <Search className="h-4 w-4" />
               </button>
             </div>
-
+            
             {/* Search Results Dropdown */}
             {showSearchResults && searchResults.length > 0 && (
               <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
@@ -409,9 +375,7 @@ const Trading = () => {
             <div className="space-y-4">
               <div className="text-center">
                 <h4 className="text-2xl font-bold text-gray-900">{marketData.symbol}</h4>
-                <p className="text-3xl font-bold text-gray-900">
-                  ₹{marketData.last_price?.toLocaleString('en-IN') || 'N/A'}
-                </p>
+                <p className="text-3xl font-bold text-gray-900">₹{marketData.last_price?.toLocaleString('en-IN') || 'N/A'}</p>
                 <div className={`flex items-center justify-center text-lg font-medium ${
                   (marketData.change || 0) >= 0 ? 'text-green-600' : 'text-red-600'
                 }`}>
@@ -420,35 +384,26 @@ const Trading = () => {
                   ) : (
                     <TrendingDown className="h-5 w-5 mr-1" />
                   )}
-                  {(marketData.change || 0) >= 0 ? '+' : ''}
-                  {(marketData.change || 0).toFixed(2)} ({(marketData.change_percent || 0).toFixed(2)}%)
+                  {(marketData.change || 0) >= 0 ? '+' : ''}{(marketData.change || 0).toFixed(2)} ({(marketData.change_percent || 0).toFixed(2)}%)
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-gray-50 p-3 rounded-lg">
                   <p className="text-sm text-gray-600">Open</p>
-                  <p className="text-lg font-semibold text-gray-900">
-                    ₹{(marketData.open || 0).toLocaleString('en-IN')}
-                  </p>
+                  <p className="text-lg font-semibold text-gray-900">₹{(marketData.open || 0).toLocaleString('en-IN')}</p>
                 </div>
                 <div className="bg-gray-50 p-3 rounded-lg">
                   <p className="text-sm text-gray-600">High</p>
-                  <p className="text-lg font-semibold text-gray-900">
-                    ₹{(marketData.high || 0).toLocaleString('en-IN')}
-                  </p>
+                  <p className="text-lg font-semibold text-gray-900">₹{(marketData.high || 0).toLocaleString('en-IN')}</p>
                 </div>
                 <div className="bg-gray-50 p-3 rounded-lg">
                   <p className="text-sm text-gray-600">Low</p>
-                  <p className="text-lg font-semibold text-gray-900">
-                    ₹{(marketData.low || 0).toLocaleString('en-IN')}
-                  </p>
+                  <p className="text-lg font-semibold text-gray-900">₹{(marketData.low || 0).toLocaleString('en-IN')}</p>
                 </div>
                 <div className="bg-gray-50 p-3 rounded-lg">
                   <p className="text-sm text-gray-600">Volume</p>
-                  <p className="text-lg font-semibold text-gray-900">
-                    {(marketData.volume || 0).toLocaleString('en-IN')}
-                  </p>
+                  <p className="text-lg font-semibold text-gray-900">{(marketData.volume || 0).toLocaleString('en-IN')}</p>
                 </div>
               </div>
             </div>
@@ -461,79 +416,80 @@ const Trading = () => {
         </div>
       </div>
 
-      {/* Main Content Area - Charts or Strategies */}
-      {activeView === 'chart' ? (
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 flex items-center">
-              <TrendingUp className="h-5 w-5 mr-2" />
-              Advanced Chart with Technical Indicators
-            </h3>
-          </div>
-
-          {sessionToken ? (
-            <EnhancedTradingChart
-              symbol={selectedSymbol}
-              sessionToken={sessionToken}
-              debug="true"
+        {/* Trading Chart - Websocket */}
+      {/* <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+          <TrendingUp className="h-5 w-5 mr-2" />
+          Real-time Price Chart ({selectedSymbol})
+        </h3>
+        {sessionToken ? (
+          
+            <WebSocketDebugger            
+              symbol={selectedSymbol} 
+              sessionToken={sessionToken} 
             />
-          ) : (
-            <div className="text-center py-8 text-gray-500">
-              Please login to view real-time charts
-            </div>
-          )}
-        </div>
-      ) : (
-        <PresetStrategies onApplyStrategy={handleApplyStrategy} />
-      )}
+         
+        ) : (
+          <div className="text-center py-8 text-gray-500">
+            Please login to view real-time charts
+          </div>
+        )}
+      </div> */}
+
+
+ {/* Trading Chart - Fixed Integration */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+          <TrendingUp className="h-5 w-5 mr-2" />
+          Real-time Price Chart ({selectedSymbol})
+        </h3>
+        {sessionToken ? (
+       
+           <ChartDataDebugger symbol={selectedSymbol} sessionToken={sessionToken} />
+      
+        ) : (
+          <div className="text-center py-8 text-gray-500">
+            Please login to view real-time charts
+          </div>
+        )}
+      </div>
+
+       
+
+      {/* Trading Chart - Fixed Integration */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+          <TrendingUp className="h-5 w-5 mr-2" />
+          Real-time Price Chart ({selectedSymbol})
+        </h3>
+        {sessionToken ? (
+       
+            <TradingChart 
+              debug="true"
+              symbol={selectedSymbol} 
+              sessionToken={sessionToken} 
+            />
+      
+        ) : (
+          <div className="text-center py-8 text-gray-500">
+            Please login to view real-time charts
+          </div>
+        )}
+      </div>
 
       {/* Quick Actions */}
       <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Symbol Access</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-          {['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK', 'SBIN', 'WIPRO', 'ITC'].map((symbol) => (
-            <button
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {['RELIANCE', 'TCS', 'INFY', 'HDFC'].map((symbol) => (
+            <button 
               key={symbol}
               onClick={() => quickSymbolSelect(symbol)}
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
             >
-              {symbol}
+              View {symbol}
             </button>
           ))}
-        </div>
-      </div>
-
-      {/* Indicator Info Panel */}
-      <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center">
-          <Lightbulb className="h-5 w-5 mr-2 text-yellow-500" />
-          Technical Indicators Guide
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-          <div className="bg-white p-4 rounded-lg">
-            <h4 className="font-semibold text-blue-600 mb-2">Trend Indicators</h4>
-            <ul className="space-y-1 text-gray-600">
-              <li>• SMA/EMA - Identify trend direction</li>
-              <li>• Parabolic SAR - Stop and reverse points</li>
-              <li>• Ichimoku - Comprehensive trend analysis</li>
-            </ul>
-          </div>
-          <div className="bg-white p-4 rounded-lg">
-            <h4 className="font-semibold text-purple-600 mb-2">Momentum Indicators</h4>
-            <ul className="space-y-1 text-gray-600">
-              <li>• RSI - Overbought/oversold levels</li>
-              <li>• MACD - Trend momentum changes</li>
-              <li>• Stochastic - Price momentum</li>
-            </ul>
-          </div>
-          <div className="bg-white p-4 rounded-lg">
-            <h4 className="font-semibold text-green-600 mb-2">Volatility Indicators</h4>
-            <ul className="space-y-1 text-gray-600">
-              <li>• Bollinger Bands - Price volatility</li>
-              <li>• ATR - Average True Range</li>
-              <li>• CCI - Commodity Channel Index</li>
-            </ul>
-          </div>
         </div>
       </div>
     </div>
